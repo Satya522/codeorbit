@@ -13,11 +13,12 @@
   },
   "homepage": "https://github.com/Satya522/codeorbit",
   "engines": {
-    "node": ">=20",
+    "node": "20.x",
     "npm": ">=10"
   },
   "scripts": {
     "dev": "next dev --webpack",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
