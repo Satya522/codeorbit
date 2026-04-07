@@ -4,6 +4,12 @@ All notable changes to this project should be recorded in this file.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-04-07
+
+- Synced production-safe Vercel environment variables for AI, CORS, and session defaults
+- Redeployed production and verified live health plus AI route behavior
+- Added production hardening documentation with remaining infrastructure blockers
+
 ## [0.1.1] - 2026-04-07
 
 - Added a clearer public demo access story for live visitors and evaluators

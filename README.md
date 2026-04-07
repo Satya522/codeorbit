@@ -286,6 +286,7 @@ Vercel is the intended deployment target for the Next.js app.
 - GitHub social preview source image: `docs/images/social-preview.png`
 
 - Deployment guide: [docs/VERCEL_DEPLOYMENT.md](docs/VERCEL_DEPLOYMENT.md)
+- Production hardening guide: [docs/PRODUCTION_HARDENING.md](docs/PRODUCTION_HARDENING.md)
 - Branch protection playbook: [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)
 - Release guide: [docs/RELEASES.md](docs/RELEASES.md)
 - Public presence guide: [docs/PUBLIC_PRESENCE.md](docs/PUBLIC_PRESENCE.md)
