@@ -4,10 +4,10 @@ All notable changes to this project should be recorded in this file.
 
 ## [Unreleased]
 
-- Production Vercel deployment
-- Public GitHub repo polish
-- Live screenshots and social preview assets
-- Release workflow and docs
+## [0.1.1] - 2026-04-07
+
+- Added a clearer public demo access story for live visitors and evaluators
+- Added a public presence guide for social preview setup and custom domain planning
 
 ## [0.1.0] - 2026-04-07
 

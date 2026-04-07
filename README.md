@@ -166,6 +166,17 @@ flowchart LR
   <img src="./docs/images/readme-mobile.jpg" alt="CodeOrbit live mobile screenshot" width="22%" />
 </p>
 
+## Demo Access
+
+People can evaluate CodeOrbit in two layers:
+
+- **Open product story**: `/`, `/about`, `/case-study`, and `/open-source` are ideal for first-look exploration
+- **Live application shell**: authenticated areas are deployed publicly, but sign-in is handled through Clerk using the visitor's own account
+- **No shared credentials**: this repo intentionally does not expose team logins, seeded user accounts, or private admin access
+- **Operational transparency**: `/api/health` is available for environment-aware health checks and may report `degraded` when optional external services are not fully configured
+
+For a clean handoff story, see [docs/DEMO_ACCESS.md](docs/DEMO_ACCESS.md).
+
 ## Tech Stack
 
 ### Frontend
@@ -272,10 +283,12 @@ Vercel is the intended deployment target for the Next.js app.
 
 - Live production URL: `https://codeorbit-xi.vercel.app`
 - GitHub repository homepage is already pointed to the live deployment
+- GitHub social preview source image: `docs/images/social-preview.png`
 
 - Deployment guide: [docs/VERCEL_DEPLOYMENT.md](docs/VERCEL_DEPLOYMENT.md)
 - Branch protection playbook: [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)
 - Release guide: [docs/RELEASES.md](docs/RELEASES.md)
+- Public presence guide: [docs/PUBLIC_PRESENCE.md](docs/PUBLIC_PRESENCE.md)
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Security policy: [SECURITY.md](SECURITY.md)
 
