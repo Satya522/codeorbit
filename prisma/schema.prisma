@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ExternalQuestionRef {
+  id                 String   @id @default(uuid())
+  platform           String
+  canonicalSlug      String   @unique @map("canonical_slug")
+  title              String
+  externalUrl        String?  @map("external_url")
+  difficulty         String
+  topic              String
+  companies          String[]
+  leetcodeFreqMax    Float?   @map("leetcode_frequency_max")
+  leetcodeAcceptance Float?   @map("leetcode_acceptance_rate_avg")
+  description        String?  @db.Text
+  constraints        String?  @db.Text
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  occurrences  ExternalQuestionOccurrence[]
+  solutions    InternalSolutionCache[]
+  userProgress UserQuestionProgress[]
+
+  @@index([platform, difficulty])
+  @@index([topic])
+  @@index([companies], type: Gin)
+  @@map("external_question_refs")
+}
+
+model InternalSolutionCache {
+  id                  String   @id @default(uuid())
+  questionId          String   @map("external_question_ref_id")
+  language            String
+  solutionKind        String   @map("solution_kind")
+  status              String
+  shortExplanation    String?  @map("short_explanation")
+  detailedExplanation String?  @db.Text @map("detailed_explanation_md")
+  code                String   @db.Text
+  timeComplexity      String?  @map("time_complexity")
+  spaceComplexity     String?  @map("space_complexity")
+  testCaseNotes       String?  @map("test_case_notes")
+  isAIGenerated       Boolean  @default(false) @map("is_ai_generated")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  question ExternalQuestionRef @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([questionId, language, solutionKind])
+  @@index([status])
+  @@map("internal_solution_cache")
+}
+
+model ExternalQuestionOccurrence {
+  id             String   @id @default(uuid())
+  questionId     String   @map("external_question_ref_id")
+  sourceRepo     String   @map("source_repo")
+  sourcePath     String   @map("source_path")
+  sourceLine     Int?     @map("source_line")
+  company        String?
+  timeBucket     DateTime @map("time_bucket")
+  frequency      Int?
+  acceptanceRate Float?   @map("acceptance_rate")
+
+  question ExternalQuestionRef @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([company, timeBucket])
+  @@map("external_question_occurrences")
+}
+
+model User {
+  id         String    @id @default(cuid())
+  email      String    @unique
+  name       String?
+  image      String?
+  role       UserRole  @default(USER)
+  level      Int       @default(1)
+  xp         Int       @default(0)
+  streakDays Int       @default(0) @map("streak_days")
+  lastActive DateTime? @map("last_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  achievements       UserAchievement[]
+  activityLogs       ActivityLog[]
+  collaborationRooms CollaborationRoomMember[]
+  progress           UserQuestionProgress[]
+  socialConnections  UserSocialConnection[]
+  submissions        Submission[]
+
+  @@map("users")
+}
+
+model UserQuestionProgress {
+  id           String         @id @default(uuid())
+  userId       String         @map("user_id")
+  questionId   String         @map("question_id")
+  status       ProgressStatus @default(NOT_STARTED)
+  attempts     Int            @default(0)
+  solvedAt     DateTime?      @map("solved_at")
+  bestRuntime  Int?           @map("best_runtime_ms")
+  bestMemory   Int?           @map("best_memory_kb")
+  codeSnapshot String?        @map("code_snapshot") @db.Text
+  language     String?
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  question ExternalQuestionRef @relation(fields: [questionId], references: [id])
+  user     User                @relation(fields: [userId], references: [id])
+
+  @@unique([userId, questionId])
+  @@index([userId, status])
+  @@map("user_question_progress")
+}
+
+model UserSocialConnection {
+  id             String         @id @default(uuid())
+  userId         String         @map("user_id")
+  provider       SocialProvider
+  handle         String?
+  profileUrl     String         @map("profile_url")
+  displayName    String?        @map("display_name")
+  avatarUrl      String?        @map("avatar_url")
+  headline       String?
+  syncedProjects Json?          @map("synced_projects")
+  metadata       Json?
+  connectedAt    DateTime       @default(now()) @map("connected_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  lastSyncedAt   DateTime?      @map("last_synced_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([provider])
+  @@map("user_social_connections")
+}
+
+model Submission {
+  id              String           @id @default(uuid())
+  userId          String           @map("user_id")
+  questionId      String           @map("question_id")
+  code            String           @db.Text
+  language        String
+  status          SubmissionStatus @default(PENDING)
+  runtime         Int?
+  memory          Int?
+  output          String?          @db.Text
+  error           String?          @db.Text
+  testCasesPassed Int?             @map("test_cases_passed")
+  totalTestCases  Int?             @map("total_test_cases")
+  submittedAt     DateTime         @default(now()) @map("submitted_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, submittedAt])
+  @@map("submissions")
+}
+
+model Achievement {
+  id          String   @id @default(uuid())
+  name        String
+  description String
+  icon        String
+  condition   String
+  xpReward    Int      @map("xp_reward")
+  createdAt   DateTime @default(now())
+
+  users UserAchievement[]
+
+  @@map("achievements")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  achievementId String   @map("achievement_id")
+  unlockedAt    DateTime @default(now()) @map("unlocked_at")
+
+  achievement Achievement @relation(fields: [achievementId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
+
+  @@unique([userId, achievementId])
+  @@map("user_achievements")
+}
+
+model CollaborationRoom {
+  id         String   @id @default(uuid())
+  questionId String   @map("question_id")
+  createdBy  String   @map("created_by")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  members CollaborationRoomMember[]
+
+  @@map("collaboration_rooms")
+}
+
+model CollaborationRoomMember {
+  id       String   @id @default(uuid())
+  roomId   String   @map("room_id")
+  userId   String   @map("user_id")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  room CollaborationRoom @relation(fields: [roomId], references: [id])
+  user User              @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId])
+  @@map("collaboration_room_members")
+}
+
+model ActivityLog {
+  id        String       @id @default(uuid())
+  userId    String       @map("user_id")
+  type      ActivityType
+  metadata  Json?
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("activity_logs")
+}
+
+enum UserRole {
+  USER
+  PRO
+  ADMIN
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SOLVED
+  OPTIMIZED
+}
+
+enum SubmissionStatus {
+  PENDING
+  COMPILING
+  RUNNING
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+}
+
+enum ActivityType {
+  LOGIN
+  SUBMISSION
+  STREAK_KEPT
+  ACHIEVEMENT_UNLOCKED
+  COLLABORATION_JOINED
+  AI_HINT_USED
+}
+
+enum SocialProvider {
+  GITHUB
+  LINKEDIN
+}

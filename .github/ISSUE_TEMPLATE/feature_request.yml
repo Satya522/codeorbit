@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a new feature or an improvement to an existing workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Explain the user need or workflow gap first.
+      placeholder: It is hard to compare practice progress across multiple coding platforms in one place.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Share the change you would like to see.
+      placeholder: Add a combined progress comparison view on the dashboard with filters by platform and topic.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Mention workarounds or other ideas you already explored.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add references, mockups, acceptance criteria, or related routes.

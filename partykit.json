@@ -1,0 +1,5 @@
+{
+  "$schema": "./node_modules/partykit/schema.json",
+  "compatibilityDate": "2026-03-23",
+  "main": "partykit/server.ts"
+}

@@ -1,0 +1,48 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the bug clearly and include the affected page, route, or feature.
+      placeholder: The playground crashes when I switch languages after running code.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Share the shortest path to reproduce the problem.
+      placeholder: |
+        1. Open /playground
+        2. Select Python
+        3. Click Run
+        4. Observe the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: The selected language should compile and render output without resetting the editor.
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include browser, OS, branch, and any relevant env setup.
+      placeholder: Windows 11, Chrome 135, local `npm run dev`, PostgreSQL from `.env`
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Add logs, screenshots, console errors, or anything else that helps.
