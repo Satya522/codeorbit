@@ -16,6 +16,18 @@
   <img src="https://img.shields.io/badge/License-UNLICENSED-red" alt="License UNLICENSED" />
 </p>
 
+<p align="center">
+  <a href="https://codeorbit-xi.vercel.app"><strong>Live Demo</strong></a>
+  ·
+  <a href="https://codeorbit-xi.vercel.app/case-study"><strong>Case Study</strong></a>
+  ·
+  <a href="https://github.com/Satya522/codeorbit/actions/workflows/ci.yml"><strong>CI</strong></a>
+</p>
+
+<p align="center">
+  <img src="./docs/images/social-preview.png" alt="CodeOrbit social preview" width="100%" />
+</p>
+
 ## What CodeOrbit Is
 
 CodeOrbit is not a single-page portfolio or a thin tutorial wrapper. It is a full product-style Next.js application designed around a clear user journey:
@@ -145,13 +157,13 @@ flowchart LR
 ## Product Visuals
 
 <p align="center">
-  <img src="./public/case-study/platform-overview.svg" alt="CodeOrbit platform overview" width="46%" />
-  <img src="./public/case-study/curriculum-flow.svg" alt="CodeOrbit curriculum flow" width="46%" />
+  <img src="./docs/images/readme-home.jpg" alt="CodeOrbit live homepage screenshot" width="46%" />
+  <img src="./docs/images/readme-case-study.jpg" alt="CodeOrbit live case study screenshot" width="46%" />
 </p>
 
 <p align="center">
-  <img src="./public/case-study/practice-dsa-flow.svg" alt="CodeOrbit practice and DSA flow" width="46%" />
-  <img src="./public/case-study/projects-ai-workspace.svg" alt="CodeOrbit projects and AI workspace" width="46%" />
+  <img src="./docs/images/readme-playground.jpg" alt="CodeOrbit live playground screenshot" width="46%" />
+  <img src="./docs/images/readme-mobile.jpg" alt="CodeOrbit live mobile screenshot" width="22%" />
 </p>
 
 ## Tech Stack
@@ -258,8 +270,12 @@ That helper starts local PostgreSQL, Redis, Next.js, and PartyKit assumptions fo
 
 Vercel is the intended deployment target for the Next.js app.
 
+- Live production URL: `https://codeorbit-xi.vercel.app`
+- GitHub repository homepage is already pointed to the live deployment
+
 - Deployment guide: [docs/VERCEL_DEPLOYMENT.md](docs/VERCEL_DEPLOYMENT.md)
 - Branch protection playbook: [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)
+- Release guide: [docs/RELEASES.md](docs/RELEASES.md)
 - Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 - Security policy: [SECURITY.md](SECURITY.md)
 
@@ -272,6 +288,13 @@ npm run check
 ```
 
 CI also runs install, Prisma validation, linting, typechecking, and production build verification on pushes and pull requests.
+
+## Release Flow
+
+- Update `CHANGELOG.md`
+- Create a version tag like `v0.1.1`
+- Push the tag to GitHub
+- GitHub Actions will publish a release with generated notes
 
 ## License
 
