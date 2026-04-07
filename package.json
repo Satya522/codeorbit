@@ -2,6 +2,20 @@
   "name": "codeorbit",
   "version": "0.1.0",
   "private": true,
+  "license": "UNLICENSED",
+  "author": "Satya522",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Satya522/codeorbit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Satya522/codeorbit/issues"
+  },
+  "homepage": "https://github.com/Satya522/codeorbit",
+  "engines": {
+    "node": ">=20",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",

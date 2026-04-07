@@ -1,8 +1,13 @@
 # CodeOrbit
 
+![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![React 19](https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white)
+![Vercel Ready](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)
+![License](https://img.shields.io/badge/License-UNLICENSED-red)
+
 CodeOrbit is a Next.js learning and practice platform that brings curriculum, coding playgrounds, AI help, DSA tracking, interview prep, and project-based learning into one workspace.
 
-## What is inside
+## Highlights
 
 - Marketing pages and product storytelling for the public site
 - Authenticated platform routes for dashboard, profile, learn, practice, playground, projects, DSA, and interview prep
@@ -49,7 +54,7 @@ src/
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/codeorbit.git
+git clone https://github.com/Satya522/codeorbit.git
 cd codeorbit
 npm ci
 cp .env.example .env
@@ -66,6 +71,7 @@ Important variables:
 - `REDIS_URL` for external caching
 - `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, or `OPENAI_API_KEY` for AI features
 - `GITHUB_TOKEN` if you want richer GitHub profile sync behavior
+- `NEXT_PUBLIC_PARTYKIT_HOST` if you run collaboration outside localhost
 
 ### Run locally
 
@@ -97,20 +103,22 @@ If you prefer manual setup, point the app at your own PostgreSQL and Redis insta
 - `npm run db:seed:practice` seeds practice data
 - `npm run partykit:dev` starts the PartyKit server
 
-## GitHub-ready defaults
+## Release-ready repo defaults
 
-This repository now includes:
+This repository includes:
 
-- a cleaned-up `.gitignore` for local-only artifacts
-- a GitHub Actions CI workflow for install, Prisma validation, linting, and production build checks
-- issue templates and a pull request template for cleaner collaboration
+- GitHub Actions CI for install, Prisma validation, linting, and production build checks
+- issue templates, PR template, CODEOWNERS, Dependabot, contributing guide, and security policy
+- tightened `.gitignore` rules so local secrets and machine-specific files stay out of Git
+- production-safe Next.js response headers for baseline hardening
 
-## Deployment notes
+## Deployment
 
-- Vercel is the most direct deployment target for the Next.js app
-- Add the same environment variables from `.env` to your hosting provider
-- If you use PartyKit in production, make sure `NEXT_PUBLIC_PARTYKIT_HOST` points to the deployed PartyKit host
+- Vercel is the recommended deployment target for the Next.js app
+- Mirror `.env` values into Vercel Project Settings instead of committing secrets
+- Review the deploy checklist in [docs/VERCEL_DEPLOYMENT.md](docs/VERCEL_DEPLOYMENT.md)
+- Review branch rules in [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)
 
-## License
+## Privacy and licensing
 
-No license file is included yet. Add one before publishing publicly if you want to define reuse terms clearly.
+This repository is intentionally marked `UNLICENSED`. The included [LICENSE](LICENSE) keeps the code proprietary by default, which is the safer choice while the project remains private.
