@@ -1,6 +1,7 @@
 {
   "name": "codeorbit",
   "version": "0.1.0",
+  "description": "An integrated developer learning platform built with Next.js, Prisma, Clerk, PartyKit, and AI-assisted workflows.",
   "private": true,
   "license": "UNLICENSED",
   "author": "Satya522",
@@ -12,6 +13,18 @@
     "url": "https://github.com/Satya522/codeorbit/issues"
   },
   "homepage": "https://github.com/Satya522/codeorbit",
+  "keywords": [
+    "nextjs",
+    "react",
+    "typescript",
+    "prisma",
+    "clerk",
+    "partykit",
+    "yjs",
+    "ai",
+    "developer-platform",
+    "coding-platform"
+  ],
   "engines": {
     "node": "20.x",
     "npm": ">=10"
@@ -22,6 +35,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run prisma:validate && npm run typecheck && npm run lint && npm run build",
     "backend:bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap-backend.ps1",
     "partykit:dev": "partykit dev",
     "prisma:push": "prisma db push",
