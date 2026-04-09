@@ -1,5 +1,6 @@
 "use client";
 
+import type { EditorProps } from "@monaco-editor/react";
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -23,7 +24,13 @@ import {
 } from "lucide-react";
 import MonacoEditor from "@/components/shared/MonacoEditor";
 import { usePlatformShell } from "@/components/layout/PlatformShell";
-import { configurePlaygroundMonaco } from "@/lib/playgroundMonaco";
+import {
+  buildPlaygroundModelPath,
+  configurePlaygroundMonaco,
+  syncPlaygroundMonacoWorkspace,
+  type MonacoInstance,
+  type PlaygroundMonacoWorkspaceFile,
+} from "@/lib/playgroundMonaco";
 import type { SqlResultTable } from "@/lib/sqlRunner";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
@@ -80,6 +87,8 @@ type HtmlWorkspaceState = {
   customFiles: HtmlWorkspaceCustomFile[];
   packages: HtmlWorkspacePackage[];
 };
+
+type MonacoEditorInstance = Parameters<NonNullable<EditorProps["onMount"]>>[0];
 
 const remoteExecutionLanguages: LanguageId[] = ["java", "python", "cpp", "javascript", "go"];
 
@@ -935,6 +944,8 @@ export function PlaygroundShell() {
   const playgroundRootRef = useRef<HTMLDivElement | null>(null);
   const runStartRef = useRef<number>(0);
   const webCoreActionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const monacoRef = useRef<MonacoInstance | null>(null);
+  const editorRef = useRef<MonacoEditorInstance | null>(null);
 
   const lang = languageOptions.find((option) => option.id === activeLang) ?? languageOptions[0];
   const selectedEditorFont =
@@ -1186,6 +1197,69 @@ export function PlaygroundShell() {
         ? htmlWorkspace.files[htmlWorkspace.activeFile]
         : htmlWorkspace.customFiles.find((file) => file.id === htmlWorkspace.activeFile)?.content ?? ""
       : codes[activeLang];
+  const editorPath =
+    activeLang === "html"
+      ? buildPlaygroundModelPath("webcore", editorFilename)
+      : buildPlaygroundModelPath(activeLang, editorFilename);
+
+  const syncMonacoWorkspace = useCallback(
+    (monaco: MonacoInstance) => {
+      const workspaceFiles: PlaygroundMonacoWorkspaceFile[] =
+        activeLang === "html"
+          ? [
+              {
+                language: "html",
+                path: buildPlaygroundModelPath("webcore", htmlWorkspace.fileNames.markup),
+                value: htmlWorkspace.files.markup,
+              },
+              ...(htmlWorkspace.enabled.styles
+                ? [
+                    {
+                      language: "css",
+                      path: buildPlaygroundModelPath("webcore", htmlWorkspace.fileNames.styles),
+                      value: htmlWorkspace.files.styles,
+                    } satisfies PlaygroundMonacoWorkspaceFile,
+                  ]
+                : []),
+              ...(htmlWorkspace.enabled.script
+                ? [
+                    {
+                      language: "javascript",
+                      path: buildPlaygroundModelPath("webcore", htmlWorkspace.fileNames.script),
+                      value: htmlWorkspace.files.script,
+                    } satisfies PlaygroundMonacoWorkspaceFile,
+                  ]
+                : []),
+              ...htmlWorkspace.customFiles.map((file) => ({
+                language: getHtmlWorkspaceMonacoLanguage(file.kind),
+                path: buildPlaygroundModelPath("webcore", file.name),
+                value: file.content,
+              })),
+            ]
+          : [
+              {
+                language: lang.monaco,
+                path: buildPlaygroundModelPath(activeLang, lang.filename),
+                value: codes[activeLang],
+              },
+            ];
+
+      syncPlaygroundMonacoWorkspace(
+        monaco,
+        workspaceFiles,
+        activeLang === "html" ? htmlWorkspace.packages : [],
+      );
+    },
+    [activeLang, codes, htmlWorkspace, lang.filename, lang.monaco],
+  );
+
+  useEffect(() => {
+    if (!monacoRef.current) {
+      return;
+    }
+
+    syncMonacoWorkspace(monacoRef.current);
+  }, [syncMonacoWorkspace]);
 
   const enableHtmlWorkspaceFile = useCallback((fileId: "styles" | "script") => {
     setHtmlWorkspace((current) => ({
@@ -2278,76 +2352,94 @@ export function PlaygroundShell() {
 
               <div className="min-h-0 min-w-0 flex-1 overflow-hidden bg-black/10">
                 <MonacoEditor
-                beforeMount={configurePlaygroundMonaco}
-                height="100%"
-                language={editorLanguage}
-                onChange={(value: string | undefined) => {
-                  if (activeLang === "html") {
-                    setHtmlWorkspace((current) => {
-                      if (isHtmlWorkspaceFileId(current.activeFile)) {
+                  beforeMount={(monaco) => {
+                    monacoRef.current = monaco;
+                    configurePlaygroundMonaco(monaco);
+                    syncMonacoWorkspace(monaco);
+                  }}
+                  height="100%"
+                  language={editorLanguage}
+                  onChange={(value: string | undefined) => {
+                    if (activeLang === "html") {
+                      setHtmlWorkspace((current) => {
+                        if (isHtmlWorkspaceFileId(current.activeFile)) {
+                          return {
+                            ...current,
+                            files: {
+                              ...current.files,
+                              [current.activeFile]: value || "",
+                            },
+                          };
+                        }
+
                         return {
                           ...current,
-                          files: {
-                            ...current.files,
-                            [current.activeFile]: value || "",
-                          },
+                          customFiles: current.customFiles.map((file) =>
+                            file.id === current.activeFile
+                              ? {
+                                  ...file,
+                                  content: value || "",
+                                }
+                              : file,
+                          ),
                         };
-                      }
+                      });
+                      return;
+                    }
 
-                      return {
-                        ...current,
-                        customFiles: current.customFiles.map((file) =>
-                          file.id === current.activeFile
-                            ? {
-                                ...file,
-                                content: value || "",
-                              }
-                            : file,
-                        ),
-                      };
-                    });
-                    return;
-                  }
-
-                  setCodes((current) => ({ ...current, [activeLang]: value || "" }));
-                }}
-                options={{
-                  acceptSuggestionOnEnter: "smart",
-                  automaticLayout: true,
-                  bracketPairColorization: { enabled: false },
-                  wordWrap: "on",
-                  fontSize: playgroundEditorFontSize,
-                  fontFamily: editorFontStack,
-                  fontLigatures: true,
-                  inlineSuggest: { enabled: true },
-                  lineHeight: 1.6,
-                  minimap: { enabled: false },
-                  parameterHints: { enabled: true },
-                  padding: { top: 20, bottom: 20 },
-                  quickSuggestions: { comments: true, other: true, strings: true },
-                  renderLineHighlight: "none",
-                  scrollBeyondLastLine: false,
-                  overviewRulerBorder: false,
-                  hideCursorInOverviewRuler: true,
-                  scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
-                  snippetSuggestions: "inline",
-                  suggestOnTriggerCharacters: true,
-                  tabCompletion: "on",
-                  wordBasedSuggestions: "allDocuments",
-                  suggest: {
-                    showKeywords: true,
-                    showSnippets: true,
-                    showClasses: true,
-                    showFunctions: true,
-                    showVariables: true,
-                    showWords: true,
-                  }
-                }}
-                path={`playground/${editorFilename}`}
-                saveViewState
-                theme="codeorbit-dark"
-                value={editorValue}
-              />
+                    setCodes((current) => ({ ...current, [activeLang]: value || "" }));
+                  }}
+                  onMount={(editor, monaco) => {
+                    editorRef.current = editor;
+                    monacoRef.current = monaco;
+                    syncMonacoWorkspace(monaco);
+                  }}
+                  options={{
+                    acceptSuggestionOnCommitCharacter: true,
+                    acceptSuggestionOnEnter: "smart",
+                    automaticLayout: true,
+                    autoClosingBrackets: "languageDefined",
+                    autoClosingQuotes: "languageDefined",
+                    autoIndent: "full",
+                    bracketPairColorization: { enabled: false },
+                    fontFamily: editorFontStack,
+                    fontLigatures: true,
+                    fontSize: playgroundEditorFontSize,
+                    formatOnPaste: true,
+                    formatOnType: true,
+                    hideCursorInOverviewRuler: true,
+                    inlineSuggest: { enabled: true },
+                    lineHeight: 1.6,
+                    linkedEditing: true,
+                    minimap: { enabled: false },
+                    overviewRulerBorder: false,
+                    padding: { top: 20, bottom: 20 },
+                    parameterHints: { enabled: true },
+                    quickSuggestions: { comments: true, other: true, strings: true },
+                    quickSuggestionsDelay: 0,
+                    renderLineHighlight: "none",
+                    scrollBeyondLastLine: false,
+                    scrollbar: { verticalScrollbarSize: 6, horizontalScrollbarSize: 6 },
+                    snippetSuggestions: "top",
+                    suggestOnTriggerCharacters: true,
+                    suggestSelection: "recentlyUsedByPrefix",
+                    tabCompletion: "on",
+                    wordBasedSuggestions: "allDocuments",
+                    wordWrap: "on",
+                    suggest: {
+                      showClasses: true,
+                      showFunctions: true,
+                      showKeywords: true,
+                      showSnippets: true,
+                      showVariables: true,
+                      showWords: true,
+                    },
+                  }}
+                  path={editorPath}
+                  saveViewState
+                  theme="codeorbit-dark"
+                  value={editorValue}
+                />
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] bg-black/20 px-3 py-2 sm:px-4">
