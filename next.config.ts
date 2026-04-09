@@ -20,6 +20,13 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  outputFileTracingIncludes: {
+    "/api/playground/lsp": [
+      "./node_modules/typescript/**/*",
+      "./node_modules/typescript-language-server/**/*",
+      "./node_modules/vscode-langservers-extracted/**/*",
+    ],
+  },
   poweredByHeader: false,
   serverExternalPackages: [
     "typescript",
