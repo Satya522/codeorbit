@@ -21,6 +21,11 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: [
+    "typescript",
+    "typescript-language-server",
+    "vscode-langservers-extracted",
+  ],
   async headers() {
     return [
       {

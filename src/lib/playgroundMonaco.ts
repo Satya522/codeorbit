@@ -39,8 +39,55 @@ export type PlaygroundMonacoWorkspacePackage = {
 };
 
 const playgroundWorkspaceRoot = "file:///codeorbit-playground";
+const jsConfigPath = `${playgroundWorkspaceRoot}/jsconfig.json`;
 const runtimeDeclarationsPath = `${playgroundWorkspaceRoot}/types/codeorbit-playground-runtime.d.ts`;
 const packageDeclarationsPath = `${playgroundWorkspaceRoot}/types/codeorbit-webcore-packages.d.ts`;
+
+type MonacoTextModel = {
+  getLanguageId(): string;
+  getValue(): string;
+  uri: { toString(): string };
+};
+
+type MonacoCompletionContext = {
+  triggerCharacter?: string;
+  triggerKind?: number;
+};
+
+type MonacoCompletionPosition = {
+  column: number;
+  lineNumber: number;
+};
+
+type MonacoWordInfo = {
+  endColumn: number;
+  startColumn: number;
+};
+
+type LspCompletionTextEdit = {
+  newText: string;
+  range: {
+    end: { character: number; line: number };
+    start: { character: number; line: number };
+  };
+};
+
+type LspCompletionItem = {
+  detail?: string;
+  documentation?: string | { kind?: string; value?: string };
+  filterText?: string;
+  insertText?: string;
+  insertTextFormat?: number;
+  kind?: number;
+  label: string | { description?: string; detail?: string; label: string };
+  sortText?: string;
+  textEdit?: LspCompletionTextEdit;
+};
+
+type LspCompletionResponse = {
+  isIncomplete?: boolean;
+  items?: LspCompletionItem[];
+};
 
 const completionKinds: Record<CompletionKind, string> = {
   class: "Class",
@@ -377,11 +424,20 @@ function buildSuggestions(monaco: MonacoInstance, items: PlaygroundCompletion[])
   }));
 }
 
+function buildCompletionRange(position: MonacoCompletionPosition, word: MonacoWordInfo) {
+  return {
+    endColumn: word.endColumn,
+    endLineNumber: position.lineNumber,
+    startColumn: word.startColumn,
+    startLineNumber: position.lineNumber,
+  };
+}
+
 function registerProvider(
   monaco: MonacoInstance,
   language: string,
   items: PlaygroundCompletion[],
-  triggerCharacters?: string[]
+  triggerCharacters?: string[],
 ) {
   monaco.languages.registerCompletionItemProvider(language, {
     triggerCharacters,
@@ -392,15 +448,10 @@ function registerProvider(
           startColumn: number;
         };
       },
-      position: { column: number; lineNumber: number }
+      position: { column: number; lineNumber: number },
     ) {
       const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      };
+      const range = buildCompletionRange(position, word);
 
       return {
         suggestions: buildSuggestions(monaco, items).map((suggestion) => ({
@@ -412,10 +463,225 @@ function registerProvider(
   });
 }
 
+function isPlaygroundModel(model: MonacoTextModel) {
+  return model.uri.toString().startsWith(playgroundWorkspaceRoot);
+}
+
+function buildWorkspaceFileRecord(model: MonacoTextModel): PlaygroundMonacoWorkspaceFile {
+  return {
+    language: model.getLanguageId(),
+    path: model.uri.toString(),
+    value: model.getValue(),
+  };
+}
+
+function mergeWorkspaceFiles(...groups: PlaygroundMonacoWorkspaceFile[][]) {
+  const merged = new Map<string, PlaygroundMonacoWorkspaceFile>();
+
+  for (const group of groups) {
+    for (const file of group) {
+      merged.set(file.path, file);
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+function collectPlaygroundWorkspaceFiles(monaco: MonacoInstance) {
+  const workspaceModels = (monaco.editor.getModels() as MonacoTextModel[]).filter(
+    isPlaygroundModel,
+  );
+
+  return mergeWorkspaceFiles(
+    workspaceModels.map(buildWorkspaceFileRecord),
+    getPlaygroundSupportFiles(),
+  );
+}
+
+function lspKindToMonacoKind(monaco: MonacoInstance, kind?: number) {
+  switch (kind) {
+    case 2:
+      return monaco.languages.CompletionItemKind.Method;
+    case 3:
+      return monaco.languages.CompletionItemKind.Function;
+    case 4:
+      return monaco.languages.CompletionItemKind.Constructor;
+    case 5:
+      return monaco.languages.CompletionItemKind.Field;
+    case 6:
+      return monaco.languages.CompletionItemKind.Variable;
+    case 7:
+      return monaco.languages.CompletionItemKind.Class;
+    case 8:
+      return monaco.languages.CompletionItemKind.Interface;
+    case 9:
+      return monaco.languages.CompletionItemKind.Module;
+    case 10:
+      return monaco.languages.CompletionItemKind.Property;
+    case 14:
+      return monaco.languages.CompletionItemKind.Keyword;
+    case 15:
+      return monaco.languages.CompletionItemKind.Snippet;
+    case 17:
+      return monaco.languages.CompletionItemKind.File;
+    case 22:
+      return monaco.languages.CompletionItemKind.Struct;
+    default:
+      return monaco.languages.CompletionItemKind.Text;
+  }
+}
+
+function getLspItemLabel(item: LspCompletionItem) {
+  return typeof item.label === "string" ? item.label : item.label.label;
+}
+
+function getLspItemDetail(item: LspCompletionItem) {
+  const labelDetail = typeof item.label === "string" ? undefined : item.label.detail;
+  const labelDescription = typeof item.label === "string" ? undefined : item.label.description;
+
+  return [item.detail, labelDetail, labelDescription].filter(Boolean).join(" • ") || undefined;
+}
+
+function getLspItemDocumentation(item: LspCompletionItem) {
+  if (!item.documentation) {
+    return undefined;
+  }
+
+  if (typeof item.documentation === "string") {
+    return { value: item.documentation };
+  }
+
+  return item.documentation.value ? { value: item.documentation.value } : undefined;
+}
+
+function toMonacoRangeFromTextEdit(
+  position: MonacoCompletionPosition,
+  word: MonacoWordInfo,
+  textEdit?: LspCompletionTextEdit,
+) {
+  if (!textEdit) {
+    return buildCompletionRange(position, word);
+  }
+
+  return {
+    endColumn: textEdit.range.end.character + 1,
+    endLineNumber: textEdit.range.end.line + 1,
+    startColumn: textEdit.range.start.character + 1,
+    startLineNumber: textEdit.range.start.line + 1,
+  };
+}
+
+function mapLspCompletionItemToMonaco(
+  monaco: MonacoInstance,
+  item: LspCompletionItem,
+  position: MonacoCompletionPosition,
+  word: MonacoWordInfo,
+) {
+  return {
+    detail: getLspItemDetail(item),
+    documentation: getLspItemDocumentation(item),
+    filterText: item.filterText,
+    insertText: item.textEdit?.newText ?? item.insertText ?? getLspItemLabel(item),
+    insertTextRules:
+      item.insertTextFormat === 2
+        ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+        : undefined,
+    kind: lspKindToMonacoKind(monaco, item.kind),
+    label: getLspItemLabel(item),
+    range: toMonacoRangeFromTextEdit(position, word, item.textEdit),
+    sortText: item.sortText,
+  };
+}
+
+async function requestLspCompletions(
+  language: "css" | "html" | "javascript",
+  body: {
+    documentUri: string;
+    files: PlaygroundMonacoWorkspaceFile[];
+    position: { column: number; line: number };
+    requestContext?: MonacoCompletionContext;
+  },
+) {
+  const response = await fetch("/api/playground/lsp", {
+    body: JSON.stringify({
+      ...body,
+      language,
+    }),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = (await response.json()) as {
+    items?: LspCompletionItem[] | LspCompletionResponse | null;
+  };
+
+  if (!payload.items) {
+    return [];
+  }
+
+  return Array.isArray(payload.items) ? payload.items : payload.items.items ?? [];
+}
+
+function registerLspCompletionProvider(
+  monaco: MonacoInstance,
+  language: "css" | "html" | "javascript",
+  triggerCharacters?: string[],
+) {
+  monaco.languages.registerCompletionItemProvider(language, {
+    triggerCharacters,
+    async provideCompletionItems(
+      model: MonacoTextModel & {
+        getWordUntilPosition(position: MonacoCompletionPosition): MonacoWordInfo;
+      },
+      position: MonacoCompletionPosition,
+      context: MonacoCompletionContext,
+    ) {
+      if (!isPlaygroundModel(model)) {
+        return { suggestions: [] };
+      }
+
+      try {
+        const workspaceFiles = collectPlaygroundWorkspaceFiles(monaco);
+        const lspItems = await requestLspCompletions(language, {
+          documentUri: model.uri.toString(),
+          files: workspaceFiles,
+          position: {
+            column: position.column,
+            line: position.lineNumber,
+          },
+          requestContext: context,
+        });
+        const word = model.getWordUntilPosition(position);
+
+        return {
+          suggestions: lspItems.map((item) =>
+            mapLspCompletionItemToMonaco(monaco, item, position, word),
+          ),
+        };
+      } catch (error) {
+        console.warn(
+          `[CodeOrbit:${language}] Unable to load LSP completions.`,
+          error instanceof Error ? error.message : error,
+        );
+
+        return { suggestions: [] };
+      }
+    },
+  });
+}
+
 let playgroundMonacoConfigured = false;
 let codeorbitRuntimeLibDisposable: { dispose(): void } | null = null;
 let webcorePackagesLibDisposable: { dispose(): void } | null = null;
 let syncedWorkspaceModelPaths = new Set<string>();
+let currentWebCorePackageDeclarations = "export {};";
 
 function buildRuntimeDeclarations() {
   return [
@@ -431,6 +697,26 @@ function buildRuntimeDeclarations() {
     "  export default markup;",
     "}",
   ].join("\n");
+}
+
+function buildJsConfig() {
+  return JSON.stringify(
+    {
+      compilerOptions: {
+        allowJs: true,
+        allowSyntheticDefaultImports: true,
+        checkJs: true,
+        jsx: "react-jsx",
+        lib: ["dom", "dom.iterable", "es2022"],
+        module: "ESNext",
+        moduleResolution: "Bundler",
+        target: "ES2022",
+      },
+      include: ["**/*"],
+    },
+    null,
+    2,
+  );
 }
 
 function buildWebCorePackageDeclarations(packages: PlaygroundMonacoWorkspacePackage[]) {
@@ -452,6 +738,26 @@ function buildWebCorePackageDeclarations(packages: PlaygroundMonacoWorkspacePack
       ].join("\n"),
     )
     .join("\n\n");
+}
+
+function getPlaygroundSupportFiles() {
+  return [
+    {
+      language: "json",
+      path: jsConfigPath,
+      value: buildJsConfig(),
+    },
+    {
+      language: "typescript",
+      path: runtimeDeclarationsPath,
+      value: buildRuntimeDeclarations(),
+    },
+    {
+      language: "typescript",
+      path: packageDeclarationsPath,
+      value: currentWebCorePackageDeclarations,
+    },
+  ] satisfies PlaygroundMonacoWorkspaceFile[];
 }
 
 function setSharedTypeScriptDefaults(monaco: MonacoInstance) {
@@ -494,6 +800,7 @@ function ensureExtraLibs(
   packages: PlaygroundMonacoWorkspacePackage[] = [],
 ) {
   const runtimeDeclarations = buildRuntimeDeclarations();
+  currentWebCorePackageDeclarations = buildWebCorePackageDeclarations(packages);
 
   codeorbitRuntimeLibDisposable?.dispose();
   codeorbitRuntimeLibDisposable = monaco.languages.typescript.javascriptDefaults.addExtraLib(
@@ -503,7 +810,7 @@ function ensureExtraLibs(
 
   webcorePackagesLibDisposable?.dispose();
   webcorePackagesLibDisposable = monaco.languages.typescript.javascriptDefaults.addExtraLib(
-    buildWebCorePackageDeclarations(packages),
+    currentWebCorePackageDeclarations,
     packageDeclarationsPath,
   );
 }
@@ -541,7 +848,10 @@ export function syncPlaygroundMonacoWorkspace(
   files: PlaygroundMonacoWorkspaceFile[],
   packages: PlaygroundMonacoWorkspacePackage[] = [],
 ) {
-  const nextWorkspaceModelPaths = new Set(files.map((file) => file.path));
+  ensureExtraLibs(monaco, packages);
+
+  const allWorkspaceFiles = mergeWorkspaceFiles(files, getPlaygroundSupportFiles());
+  const nextWorkspaceModelPaths = new Set(allWorkspaceFiles.map((file) => file.path));
 
   for (const previousPath of syncedWorkspaceModelPaths) {
     if (nextWorkspaceModelPaths.has(previousPath)) {
@@ -552,12 +862,11 @@ export function syncPlaygroundMonacoWorkspace(
     staleModel?.dispose();
   }
 
-  for (const file of files) {
+  for (const file of allWorkspaceFiles) {
     syncWorkspaceModel(monaco, file);
   }
 
   syncedWorkspaceModelPaths = nextWorkspaceModelPaths;
-  ensureExtraLibs(monaco, packages);
 }
 
 export function configurePlaygroundMonaco(monaco: MonacoInstance) {
@@ -622,4 +931,7 @@ export function configurePlaygroundMonaco(monaco: MonacoInstance) {
   registerProvider(monaco, "sql", sqlCompletions);
   registerProvider(monaco, "cpp", cppCompletions, ["<", "."]);
   registerProvider(monaco, "go", goCompletions, ["."]);
+  registerLspCompletionProvider(monaco, "javascript", [".", "\"", "'", "/", "@"]);
+  registerLspCompletionProvider(monaco, "html", ["<", " ", "\"", "=", "/"]);
+  registerLspCompletionProvider(monaco, "css", [":", "-", ".", "@", "#"]);
 }
