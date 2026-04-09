@@ -27,7 +27,7 @@ const upNext = [
 ];
 
 const quickActions = [
-  { label: "Sandbox", icon: "💻", desc: "Write & test code", href: "/playground" },
+  { label: "Playground", icon: "💻", desc: "Write & test code", href: "/playground" },
   { label: "Code Buddy", icon: "🤖", desc: "Get instant AI help", href: "/ai-assistant" },
   { label: "Core CS", icon: "🧠", desc: "Solve problems", href: "/dsa" },
   { label: "Mock Teck", icon: "🎤", desc: "Practice interviews", href: "/interview-prep" },

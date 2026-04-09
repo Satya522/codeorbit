@@ -1,9 +1,10 @@
 import { ProgressStatus } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { readJsonBody } from "@/lib/api-request";
 import { prisma } from "@/lib/db";
 import { normalizeDifficultyLabel } from "@/lib/practice-prisma";
-import { resolveAuthenticatedDatabaseUser } from "@/lib/resolve-authenticated-user";
+import { resolveAuthenticatedDatabaseUserState } from "@/lib/resolve-authenticated-user";
 
 const progressEntrySchema = z.object({
   difficulty: z.enum(["Easy", "Medium", "Hard"]).nullable(),
@@ -76,18 +77,33 @@ async function readUserPracticeProgress(dbUserId: string) {
   }));
 }
 
-export async function GET() {
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+function unavailableProgressResponse(message: string) {
+  return NextResponse.json(
+    {
+      authenticated: true,
+      error: message,
+      progress: [],
+    },
+    { status: 503 },
+  );
+}
 
-  if (!dbUser) {
+export async function GET() {
+  const authState = await resolveAuthenticatedDatabaseUserState();
+
+  if (authState.status === "unauthenticated") {
     return NextResponse.json({
       authenticated: false,
       progress: [],
     });
   }
 
+  if (authState.status === "unavailable") {
+    return unavailableProgressResponse(authState.message);
+  }
+
   try {
-    const progress = await readUserPracticeProgress(dbUser.dbUserId);
+    const progress = await readUserPracticeProgress(authState.user.dbUserId);
 
     return NextResponse.json({
       authenticated: true,
@@ -107,29 +123,29 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  let body: z.infer<typeof syncBodySchema>;
+  const bodyResult = await readJsonBody({
+    invalidMessage: "Invalid progress payload.",
+    maxBytes: 256_000,
+    request,
+    schema: syncBodySchema,
+    tooLargeMessage: "Progress payload is too large. Split the sync into smaller batches and try again.",
+  });
 
-  try {
-    body = syncBodySchema.parse(await request.json());
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        {
-          error: "Invalid progress payload.",
-          issues: error.flatten(),
-        },
-        { status: 400 },
-      );
-    }
-
-    return NextResponse.json({ error: "Invalid progress payload." }, { status: 400 });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
   }
 
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+  const authState = await resolveAuthenticatedDatabaseUserState();
 
-  if (!dbUser) {
+  if (authState.status === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
+
+  if (authState.status === "unavailable") {
+    return NextResponse.json({ error: authState.message }, { status: 503 });
+  }
+
+  const body = bodyResult.data;
 
   try {
     const questionRows = await prisma.externalQuestionRef.findMany({
@@ -161,7 +177,7 @@ export async function POST(request: NextRequest) {
             where: {
               userId_questionId: {
                 questionId,
-                userId: dbUser.dbUserId,
+                userId: authState.user.dbUserId,
               },
             },
             update: {
@@ -176,14 +192,14 @@ export async function POST(request: NextRequest) {
               questionId,
               solvedAt,
               status: nextStatus,
-              userId: dbUser.dbUserId,
+              userId: authState.user.dbUserId,
             },
           }),
         ];
       }),
     );
 
-    const progress = await readUserPracticeProgress(dbUser.dbUserId);
+    const progress = await readUserPracticeProgress(authState.user.dbUserId);
 
     return NextResponse.json({
       authenticated: true,
@@ -199,29 +215,29 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  let body: z.infer<typeof deleteBodySchema>;
+  const bodyResult = await readJsonBody({
+    invalidMessage: "Invalid delete payload.",
+    maxBytes: 32_000,
+    request,
+    schema: deleteBodySchema,
+    tooLargeMessage: "Delete payload is too large. Split the request into smaller batches and try again.",
+  });
 
-  try {
-    body = deleteBodySchema.parse(await request.json());
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        {
-          error: "Invalid delete payload.",
-          issues: error.flatten(),
-        },
-        { status: 400 },
-      );
-    }
-
-    return NextResponse.json({ error: "Invalid delete payload." }, { status: 400 });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
   }
 
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+  const authState = await resolveAuthenticatedDatabaseUserState();
 
-  if (!dbUser) {
+  if (authState.status === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
+
+  if (authState.status === "unavailable") {
+    return NextResponse.json({ error: authState.message }, { status: 503 });
+  }
+
+  const body = bodyResult.data;
 
   try {
     const questionRows = await prisma.externalQuestionRef.findMany({
@@ -240,11 +256,11 @@ export async function DELETE(request: NextRequest) {
         questionId: {
           in: questionRows.map((row) => row.id),
         },
-        userId: dbUser.dbUserId,
+        userId: authState.user.dbUserId,
       },
     });
 
-    const progress = await readUserPracticeProgress(dbUser.dbUserId);
+    const progress = await readUserPracticeProgress(authState.user.dbUserId);
 
     return NextResponse.json({
       authenticated: true,

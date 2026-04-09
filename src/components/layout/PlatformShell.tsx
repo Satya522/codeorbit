@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useSyncExternalStore } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { Navbar } from "./navbar";
 import { Sidebar } from "./sidebar";
@@ -13,6 +13,10 @@ type PlatformShellContextValue = {
   isSidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
+  isPlaygroundChromeVisible: boolean;
+  showPlaygroundChrome: () => void;
+  schedulePlaygroundChromeHide: () => void;
+  cancelPlaygroundChromeHide: () => void;
 };
 
 const PlatformShellContext = createContext<PlatformShellContextValue>({
@@ -22,6 +26,10 @@ const PlatformShellContext = createContext<PlatformShellContextValue>({
   isSidebarCollapsed: false,
   toggleSidebar: () => {},
   setSidebarCollapsed: () => {},
+  isPlaygroundChromeVisible: true,
+  showPlaygroundChrome: () => {},
+  schedulePlaygroundChromeHide: () => {},
+  cancelPlaygroundChromeHide: () => {},
 });
 
 function useMediaQuery(query: string) {
@@ -45,7 +53,17 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const isCompactViewport = useMediaQuery("(max-width: 1023px)");
   const [isDesktopSidebarCollapsed, setIsDesktopSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [playgroundChromeState, setPlaygroundChromeState] = useState({
+    path: "",
+    visible: false,
+  });
+  const playgroundChromeHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSidebarCollapsed = isCompactViewport ? !isMobileSidebarOpen : isDesktopSidebarCollapsed;
+  const shouldShowFooter = !isPlaygroundRoute;
+  const shouldAutoHidePlaygroundChrome = isPlaygroundRoute && !isCompactViewport;
+  const isPlaygroundChromeVisible = shouldAutoHidePlaygroundChrome
+    ? (playgroundChromeState.path === pathname ? playgroundChromeState.visible : false)
+    : true;
 
   const toggleSidebar = useCallback(() => {
     if (isCompactViewport) {
@@ -65,7 +83,44 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
     setIsDesktopSidebarCollapsed(v);
   }, [isCompactViewport]);
 
-  const shouldShowSidebar = (!isPlaygroundRoute || isPlaygroundSidebarOpen) && !isCourseDetailRoute;
+  const cancelPlaygroundChromeHide = useCallback(() => {
+    if (playgroundChromeHideTimerRef.current) {
+      clearTimeout(playgroundChromeHideTimerRef.current);
+      playgroundChromeHideTimerRef.current = null;
+    }
+  }, []);
+
+  const showPlaygroundChrome = useCallback(() => {
+    cancelPlaygroundChromeHide();
+    setPlaygroundChromeState({
+      path: pathname,
+      visible: true,
+    });
+  }, [cancelPlaygroundChromeHide, pathname]);
+
+  const schedulePlaygroundChromeHide = useCallback(() => {
+    if (!shouldAutoHidePlaygroundChrome) {
+      return;
+    }
+
+    cancelPlaygroundChromeHide();
+    playgroundChromeHideTimerRef.current = setTimeout(() => {
+      setPlaygroundChromeState({
+        path: pathname,
+        visible: false,
+      });
+      playgroundChromeHideTimerRef.current = null;
+    }, 160);
+  }, [cancelPlaygroundChromeHide, pathname, shouldAutoHidePlaygroundChrome]);
+
+  useEffect(() => cancelPlaygroundChromeHide, [cancelPlaygroundChromeHide]);
+
+  const shouldRenderInlineNavbar = !shouldAutoHidePlaygroundChrome;
+  const shouldRenderOverlayNavbar = shouldAutoHidePlaygroundChrome && isPlaygroundChromeVisible;
+  const shouldShowSidebar = (
+    !isPlaygroundRoute ||
+    (shouldAutoHidePlaygroundChrome ? isPlaygroundChromeVisible : isPlaygroundSidebarOpen)
+  ) && !isCourseDetailRoute;
 
   return (
     <PlatformShellContext.Provider
@@ -76,6 +131,10 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
         isSidebarCollapsed,
         toggleSidebar,
         setSidebarCollapsed: setSidebarCollapsedSafe,
+        isPlaygroundChromeVisible,
+        showPlaygroundChrome,
+        schedulePlaygroundChromeHide,
+        cancelPlaygroundChromeHide,
       }}
     >
       <div className="relative flex min-h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -85,16 +144,41 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
           <div className="absolute right-[-120px] top-12 h-[340px] w-[340px] rounded-full bg-cyan-400/8 blur-[120px]" />
           <div className="absolute bottom-[-120px] left-1/3 h-[320px] w-[320px] rounded-full bg-violet-500/10 blur-[140px]" />
         </div>
-        <Navbar />
+        {shouldAutoHidePlaygroundChrome ? (
+          <>
+            <div
+              aria-hidden="true"
+              className="fixed inset-x-0 top-0 z-40 h-5"
+              onMouseEnter={showPlaygroundChrome}
+            />
+            <div
+              aria-hidden="true"
+              className="fixed left-0 top-0 z-40 h-full w-5"
+              onMouseEnter={showPlaygroundChrome}
+            />
+          </>
+        ) : null}
+        {shouldRenderInlineNavbar ? <Navbar /> : null}
+        {shouldRenderOverlayNavbar ? (
+          <div
+            className="fixed inset-x-0 top-0 z-50"
+            onMouseEnter={cancelPlaygroundChromeHide}
+            onMouseLeave={schedulePlaygroundChromeHide}
+          >
+            <Navbar />
+          </div>
+        ) : null}
         <div className="relative z-10 mt-0 flex min-h-0 flex-1 pt-0">
           {shouldShowSidebar ? <Sidebar /> : null}
           <main className={`relative transition-all duration-300 ${isPlaygroundRoute ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "min-h-0 min-w-0 flex-1 overflow-y-auto"} ${shouldShowSidebar && isSidebarCollapsed && !isPlaygroundRoute ? 'lg:pl-[4.5rem]' : ''}`}>
             {children}
           </main>
         </div>
-        <div className="relative z-10">
-          <Footer />
-        </div>
+        {shouldShowFooter ? (
+          <div className="relative z-10">
+            <Footer />
+          </div>
+        ) : null}
       </div>
     </PlatformShellContext.Provider>
   );

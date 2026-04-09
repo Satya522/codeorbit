@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
+import { cookies } from "next/headers";
+import { CookieConsentGate } from "@/components/legal/CookieConsentGate";
+import { COOKIE_CONSENT_COOKIE_NAME, isCookieConsentAccepted } from "@/lib/cookie-consent";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -26,11 +29,16 @@ export const metadata: Metadata = {
   description: "A 2027-level, premium, startup-grade coding education and developer practice platform.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const initialCookieConsent = isCookieConsentAccepted(
+    cookieStore.get(COOKIE_CONSENT_COOKIE_NAME)?.value,
+  );
+
   return (
     <ClerkProvider appearance={{ baseTheme: dark }}>
       <html lang="en" suppressHydrationWarning>
@@ -48,6 +56,7 @@ export default function RootLayout({
             <main className="flex-1 transition-colors duration-[800ms] ease-in-out">
               {children}
             </main>
+            <CookieConsentGate initialHasConsent={initialCookieConsent} />
           </ThemeProvider>
         </body>
       </html>

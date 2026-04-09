@@ -344,7 +344,7 @@ export default function Home() {
 
           {/* Subheadline */}
           <p className="mx-auto mb-8 max-w-2xl text-sm font-medium leading-[1.75] text-zinc-400 sm:text-lg md:mb-10 md:text-xl">
-            Curriculum. Sandbox IDE. DSA engine. Mock interviews. AI mentor. Enterprise projects.<br className="hidden sm:block" />
+                Curriculum. Playground IDE. DSA engine. Mock interviews. AI mentor. Enterprise projects.<br className="hidden sm:block" />
             <span className="text-zinc-300 font-semibold">One platform. Zero distractions.</span>
           </p>
 

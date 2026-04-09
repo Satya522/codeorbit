@@ -3,7 +3,7 @@
 import { SignIn, SignUp } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import { Sparkle } from "@phosphor-icons/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 
 type AuthMode = "sign-in" | "sign-up";
 
@@ -56,56 +56,17 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
         ? {
             badge: "CodeOrbit Access",
             subtitle:
-              "GitHub, Google, email, and phone are available here.",
+              "GitHub, LinkedIn, Google, email, and phone are available here.",
             title: "Sign in to continue",
           }
         : {
             badge: "Launch Your Orbit",
             subtitle:
-              "Create one account for practice, roadmap progress, and GitHub sync.",
+              "Create one account for practice, roadmap progress, and social sync.",
             title: "Create your account",
           },
     [isSignIn],
   );
-
-  useEffect(() => {
-    const root = shellRef.current;
-
-    if (!root) {
-      return;
-    }
-
-    const hideLinkedIn = () => {
-      const targets = root.querySelectorAll<HTMLElement>("button, a, [role='button'], div");
-
-      targets.forEach((element) => {
-        const haystack = [
-          element.textContent || "",
-          element.getAttribute("aria-label") || "",
-          element.getAttribute("data-provider") || "",
-          element.getAttribute("data-social-provider") || "",
-          element.getAttribute("href") || "",
-        ]
-          .join(" ")
-          .toLowerCase();
-
-        if (haystack.includes("linkedin")) {
-          element.style.display = "none";
-        }
-      });
-    };
-
-    hideLinkedIn();
-
-    const observer = new MutationObserver(() => hideLinkedIn());
-    observer.observe(root, {
-      attributes: true,
-      childList: true,
-      subtree: true,
-    });
-
-    return () => observer.disconnect();
-  }, []);
 
   return (
     <div
@@ -150,14 +111,6 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
       </div>
 
       <style jsx global>{`
-        .codeorbit-auth-shell button[aria-label*="LinkedIn"],
-        .codeorbit-auth-shell a[aria-label*="LinkedIn"],
-        .codeorbit-auth-shell [data-provider*="linkedin"],
-        .codeorbit-auth-shell [data-social-provider*="linkedin"],
-        .codeorbit-auth-shell a[href*="linkedin"] {
-          display: none !important;
-        }
-
         .codeorbit-auth-shell .cl-cardBox,
         .codeorbit-auth-shell .cl-rootBox {
           width: 100%;

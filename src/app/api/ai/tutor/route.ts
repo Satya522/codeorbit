@@ -11,6 +11,8 @@ import {
 } from "ai";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { buildRateLimitHeaders, requireSignedInRouteAccess } from "@/lib/api-guard";
+import { readJsonBody } from "@/lib/api-request";
 import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -18,17 +20,17 @@ export const maxDuration = 30;
 
 const inputMessageSchema = z
   .object({
-    content: z.string().optional(),
+    content: z.string().max(4_000).optional(),
     parts: z.array(z.record(z.string(), z.unknown())).optional(),
     role: z.enum(["system", "user", "assistant"]),
   })
   .passthrough();
 
 const requestSchema = z.object({
-  currentCode: z.string().optional(),
-  language: z.string().trim().min(1).default("javascript"),
-  messages: z.array(inputMessageSchema).default([]),
-  questionId: z.string().trim().min(1).optional(),
+  currentCode: z.string().max(20_000).optional(),
+  language: z.string().trim().min(1).max(40).default("javascript"),
+  messages: z.array(inputMessageSchema).max(20).default([]),
+  questionId: z.string().trim().min(1).max(120).optional(),
 });
 
 type TutorInputMessage = z.infer<typeof inputMessageSchema>;
@@ -107,6 +109,14 @@ function extractTextFromMessage(message: TutorInputMessage) {
     })
     .join("\n")
     .trim();
+}
+
+function attachRateLimitHeaders(response: Response, headers: Record<string, string>) {
+  for (const [key, value] of Object.entries(headers)) {
+    response.headers.set(key, value);
+  }
+
+  return response;
 }
 
 function normalizeGeminiMessages(messages: TutorInputMessage[]) {
@@ -398,21 +408,31 @@ async function normalizeMessages(messages: TutorInputMessage[]) {
 }
 
 export async function POST(request: Request) {
-  let body: z.infer<typeof requestSchema>;
+  const access = await requireSignedInRouteAccess({
+    bucket: "ai-tutor",
+    limit: 15,
+    unauthenticatedMessage: "Sign in to use the CodeOrbit AI tutor.",
+    windowSeconds: 60,
+  });
 
-  try {
-    body = requestSchema.parse(await request.json());
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error: "Invalid request body.",
-        details: error instanceof z.ZodError ? error.flatten() : undefined,
-      },
-      { status: 400 },
-    );
+  if (!access.ok) {
+    return access.response;
+  }
+
+  const bodyResult = await readJsonBody({
+    invalidMessage: "Invalid tutor payload.",
+    maxBytes: 96_000,
+    request,
+    schema: requestSchema,
+    tooLargeMessage: "Tutor payload is too large. Shorten the code or chat history and try again.",
+  });
+
+  if (!bodyResult.ok) {
+    return bodyResult.response;
   }
 
   try {
+    const body = bodyResult.data;
     const question = await getQuestionContext(body.questionId);
     const modelMessages = await normalizeMessages(body.messages);
     const systemPrompt = buildSystemPrompt({
@@ -423,20 +443,25 @@ export async function POST(request: Request) {
     const provider = getTutorModel();
 
     if (!provider && !process.env.GEMINI_API_KEY?.trim()) {
-      return NextResponse.json(
-        {
-          error:
-            "No tutor AI provider configured. Add OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY to .env and restart the dev server.",
-        },
-        { status: 500 },
+      return attachRateLimitHeaders(
+        NextResponse.json(
+          {
+            error:
+              "No tutor AI provider configured. Add OPENAI_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY to .env and restart the dev server.",
+          },
+          { status: 500 },
+        ),
+        buildRateLimitHeaders(access.rateLimit),
       );
     }
 
     if (!provider) {
-      return await createGeminiTutorResponse({
+      const response = await createGeminiTutorResponse({
         body,
         systemPrompt,
       });
+
+      return attachRateLimitHeaders(response, buildRateLimitHeaders(access.rateLimit));
     }
 
     const result = streamText({
@@ -471,17 +496,22 @@ export async function POST(request: Request) {
       },
     });
 
-    return result.toUIMessageStreamResponse({
+    const response = result.toUIMessageStreamResponse({
       headers: {
         "X-AI-Provider": provider.label,
       },
     });
+
+    return attachRateLimitHeaders(response, buildRateLimitHeaders(access.rateLimit));
   } catch (error) {
     console.error("Error streaming AI tutor response:", error);
 
-    return NextResponse.json(
-      { error: "Failed to start AI tutor stream." },
-      { status: 500 },
+    return attachRateLimitHeaders(
+      NextResponse.json(
+        { error: "Failed to start AI tutor stream." },
+        { status: 500 },
+      ),
+      buildRateLimitHeaders(access.rateLimit),
     );
   }
 }

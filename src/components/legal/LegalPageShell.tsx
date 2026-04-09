@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowLeft, Shield, FileText, Code2 } from "lucide-react";
+import { ArrowLeft, Shield, FileText, Cookie, Code2 } from "lucide-react";
 
 type LegalSection = {
   body: string[];
@@ -9,6 +9,7 @@ type LegalSection = {
 
 const legalLinks = [
   { href: "/privacy-policy", label: "Privacy Policy", icon: Shield },
+  { href: "/cookies-policy", label: "Cookies Policy", icon: Cookie },
   { href: "/terms-of-service", label: "Terms of Service", icon: FileText },
   { href: "/open-source", label: "Open Source", icon: Code2 },
 ];

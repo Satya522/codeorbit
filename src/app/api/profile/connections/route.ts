@@ -2,9 +2,12 @@ import { currentUser } from "@clerk/nextjs/server";
 import { Prisma, type SocialProvider, type UserSocialConnection } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { readJsonBody } from "@/lib/api-request";
 import { prisma } from "@/lib/db";
-import { resolveAuthenticatedDatabaseUser } from "@/lib/resolve-authenticated-user";
+import { resolveAuthenticatedDatabaseUserState } from "@/lib/resolve-authenticated-user";
 import {
+  buildLinkedInConnection,
+  buildLinkedInConnectionFromClerk,
   refreshStoredGitHubConnection,
   shouldRefreshGitHubConnection,
   syncGitHubConnection,
@@ -16,15 +19,16 @@ import {
 
 const connectionSchema = z.object({
   identifier: z.string().trim().min(1).optional(),
-  provider: z.enum(["GITHUB"]),
+  provider: z.enum(["GITHUB", "LINKEDIN"]),
   useClerkAccount: z.boolean().optional(),
 });
 
 const deleteSchema = z.object({
-  provider: z.enum(["GITHUB"]),
+  provider: z.enum(["GITHUB", "LINKEDIN"]),
 });
 
 const GITHUB_PROVIDER: SocialProvider = "GITHUB";
+const LINKEDIN_PROVIDER: SocialProvider = "LINKEDIN";
 
 type ClerkSocialSuggestion = {
   avatarUrl: string | null;
@@ -129,10 +133,28 @@ function setupRequiredResponse(clerkSuggestions: ClerkSocialSuggestion[] = []) {
   );
 }
 
+function providerLabel(provider: SocialProvider) {
+  return provider === LINKEDIN_PROVIDER ? "LinkedIn" : "GitHub";
+}
+
+function providerHeadline(provider: SocialProvider) {
+  return provider === LINKEDIN_PROVIDER
+    ? "Import your Clerk-connected LinkedIn profile in one click."
+    : "Import your Clerk-connected GitHub account and sync repos in one click.";
+}
+
 function matchExternalAccountProvider(provider: string, socialProvider: SocialProvider) {
   const normalizedProvider = provider.toLowerCase();
 
-  return socialProvider === GITHUB_PROVIDER && normalizedProvider.includes("github");
+  if (socialProvider === GITHUB_PROVIDER) {
+    return normalizedProvider.includes("github");
+  }
+
+  if (socialProvider === LINKEDIN_PROVIDER) {
+    return normalizedProvider.includes("linkedin");
+  }
+
+  return false;
 }
 
 function formatClerkDisplayName(account: ClerkExternalAccountSnapshot) {
@@ -169,6 +191,33 @@ function findClerkAccount(
   );
 }
 
+function buildSuggestionFromClerkAccount(
+  provider: SocialProvider,
+  snapshot: ClerkExternalAccountSnapshot,
+): ClerkSocialSuggestion {
+  if (provider === LINKEDIN_PROVIDER) {
+    const linkedInConnection = buildLinkedInConnectionFromClerk(snapshot);
+
+    return {
+      avatarUrl: linkedInConnection.avatarUrl,
+      displayName: linkedInConnection.displayName,
+      handle: linkedInConnection.handle,
+      headline: providerHeadline(provider),
+      profileUrl: linkedInConnection.profileUrl,
+      provider,
+    };
+  }
+
+  return {
+    avatarUrl: snapshot.imageUrl || null,
+    displayName: formatClerkDisplayName(snapshot),
+    handle: snapshot.username?.trim() || snapshot.providerUserId,
+    headline: providerHeadline(provider),
+    profileUrl: snapshot.username?.trim() ? `https://github.com/${snapshot.username.trim()}` : "https://github.com/",
+    provider,
+  };
+}
+
 function buildClerkSuggestions(
   clerkUser: Awaited<ReturnType<typeof currentUser>>,
 ): ClerkSocialSuggestion[] {
@@ -176,22 +225,17 @@ function buildClerkSuggestions(
     return [];
   }
 
-  const suggestions: ClerkSocialSuggestion[] = [];
-  const account = findClerkAccount(clerkUser, GITHUB_PROVIDER);
+  const providers: SocialProvider[] = [GITHUB_PROVIDER, LINKEDIN_PROVIDER];
 
-  if (account) {
-    const snapshot = mapClerkAccount(account);
-    suggestions.push({
-      avatarUrl: snapshot.imageUrl || null,
-      displayName: formatClerkDisplayName(snapshot),
-      handle: snapshot.username?.trim() || snapshot.providerUserId,
-      headline: "Import your Clerk-connected GitHub account and sync repos in one click.",
-      profileUrl: snapshot.username?.trim() ? `https://github.com/${snapshot.username.trim()}` : "https://github.com/",
-      provider: GITHUB_PROVIDER,
-    });
-  }
+  return providers.flatMap((provider) => {
+    const account = findClerkAccount(clerkUser, provider);
 
-  return suggestions;
+    if (!account) {
+      return [];
+    }
+
+    return [buildSuggestionFromClerkAccount(provider, mapClerkAccount(account))];
+  });
 }
 
 async function upsertConnection(dbUserId: string, snapshot: SocialConnectionSnapshot) {
@@ -242,7 +286,11 @@ async function maybeRefreshConnections(dbUserId: string, connections: UserSocial
   const refreshedConnections = [...connections];
 
   for (const connection of connections) {
-    if (!shouldRefreshGitHubConnection(connection) || metadataSource(connection).startsWith("clerk-oauth")) {
+    if (
+      connection.provider !== GITHUB_PROVIDER ||
+      !shouldRefreshGitHubConnection(connection) ||
+      metadataSource(connection).startsWith("clerk-oauth")
+    ) {
       continue;
     }
 
@@ -269,10 +317,15 @@ async function resolveClerkSnapshot(
   const account = findClerkAccount(clerkUser, body.provider as SocialProvider);
 
   if (!account) {
-    throw new Error("No connected GitHub account was found in Clerk.");
+    throw new Error(`No connected ${providerLabel(body.provider)} account was found in Clerk.`);
   }
 
   const snapshot = mapClerkAccount(account);
+
+  if (body.provider === LINKEDIN_PROVIDER) {
+    return buildLinkedInConnectionFromClerk(snapshot);
+  }
+
   return syncGitHubConnectionFromClerk(snapshot);
 }
 
@@ -285,16 +338,41 @@ async function resolveSnapshotFromBody(
   }
 
   if (!body.identifier?.trim()) {
-    throw new Error("GitHub username or profile URL is required.");
+    throw new Error(
+      body.provider === LINKEDIN_PROVIDER
+        ? "LinkedIn profile URL is required."
+        : "GitHub username or profile URL is required.",
+    );
+  }
+
+  if (body.provider === LINKEDIN_PROVIDER) {
+    return buildLinkedInConnection({
+      profileUrl: body.identifier,
+    });
   }
 
   return syncGitHubConnection(body.identifier);
 }
 
-export async function GET() {
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+function unavailableConnectionsResponse(
+  clerkSuggestions: ClerkSocialSuggestion[],
+  message: string,
+) {
+  return NextResponse.json<ConnectionResponse>(
+    {
+      authenticated: true,
+      clerkSuggestions,
+      connections: [],
+      error: message,
+    },
+    { status: 503 },
+  );
+}
 
-  if (!dbUser) {
+export async function GET() {
+  const authState = await resolveAuthenticatedDatabaseUserState();
+
+  if (authState.status === "unauthenticated") {
     return NextResponse.json<ConnectionResponse>({
       authenticated: false,
       clerkSuggestions: [],
@@ -305,10 +383,13 @@ export async function GET() {
   const clerkUser = await currentUser();
   const clerkSuggestions = buildClerkSuggestions(clerkUser);
 
+  if (authState.status === "unavailable") {
+    return unavailableConnectionsResponse(clerkSuggestions, authState.message);
+  }
+
   try {
-    const connections = await readConnections(dbUser.dbUserId);
-    const githubConnections = connections.filter((connection) => connection.provider === GITHUB_PROVIDER);
-    const refreshedConnections = await maybeRefreshConnections(dbUser.dbUserId, githubConnections);
+    const connections = await readConnections(authState.user.dbUserId);
+    const refreshedConnections = await maybeRefreshConnections(authState.user.dbUserId, connections);
 
     return NextResponse.json<ConnectionResponse>({
       authenticated: true,
@@ -335,40 +416,36 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  let body: z.infer<typeof connectionSchema>;
+  const bodyResult = await readJsonBody({
+    invalidMessage: "Invalid social connection payload.",
+    maxBytes: 16_000,
+    request,
+    schema: connectionSchema,
+    tooLargeMessage: "Social connection payload is too large.",
+  });
 
-  try {
-    body = connectionSchema.parse(await request.json());
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        {
-          error: "Invalid social connection payload.",
-          issues: error.flatten(),
-        },
-        { status: 400 },
-      );
-    }
-
-    return NextResponse.json({ error: "Invalid social connection payload." }, { status: 400 });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
   }
 
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+  const authState = await resolveAuthenticatedDatabaseUserState();
 
-  if (!dbUser) {
+  if (authState.status === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   const clerkUser = await currentUser();
   const clerkSuggestions = buildClerkSuggestions(clerkUser);
 
-  try {
-    const snapshot = await resolveSnapshotFromBody(body, clerkUser);
+  if (authState.status === "unavailable") {
+    return unavailableConnectionsResponse(clerkSuggestions, authState.message);
+  }
 
-    await upsertConnection(dbUser.dbUserId, snapshot);
-    const connections = (await readConnections(dbUser.dbUserId)).filter(
-      (connection) => connection.provider === GITHUB_PROVIDER,
-    );
+  try {
+    const snapshot = await resolveSnapshotFromBody(bodyResult.data, clerkUser);
+
+    await upsertConnection(authState.user.dbUserId, snapshot);
+    const connections = await readConnections(authState.user.dbUserId);
 
     return NextResponse.json<ConnectionResponse>({
       authenticated: true,
@@ -389,44 +466,40 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  let body: z.infer<typeof deleteSchema>;
+  const bodyResult = await readJsonBody({
+    invalidMessage: "Invalid delete payload.",
+    maxBytes: 4_000,
+    request,
+    schema: deleteSchema,
+    tooLargeMessage: "Delete payload is too large.",
+  });
 
-  try {
-    body = deleteSchema.parse(await request.json());
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        {
-          error: "Invalid delete payload.",
-          issues: error.flatten(),
-        },
-        { status: 400 },
-      );
-    }
-
-    return NextResponse.json({ error: "Invalid delete payload." }, { status: 400 });
+  if (!bodyResult.ok) {
+    return bodyResult.response;
   }
 
-  const dbUser = await resolveAuthenticatedDatabaseUser();
+  const authState = await resolveAuthenticatedDatabaseUserState();
 
-  if (!dbUser) {
+  if (authState.status === "unauthenticated") {
     return NextResponse.json({ error: "Authentication required." }, { status: 401 });
   }
 
   const clerkUser = await currentUser();
   const clerkSuggestions = buildClerkSuggestions(clerkUser);
 
+  if (authState.status === "unavailable") {
+    return unavailableConnectionsResponse(clerkSuggestions, authState.message);
+  }
+
   try {
     await prisma.userSocialConnection.deleteMany({
       where: {
-        provider: body.provider,
-        userId: dbUser.dbUserId,
+        provider: bodyResult.data.provider,
+        userId: authState.user.dbUserId,
       },
     });
 
-    const connections = (await readConnections(dbUser.dbUserId)).filter(
-      (connection) => connection.provider === GITHUB_PROVIDER,
-    );
+    const connections = await readConnections(authState.user.dbUserId);
 
     return NextResponse.json<ConnectionResponse>({
       authenticated: true,

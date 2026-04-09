@@ -19,7 +19,7 @@ import {
 
 const sidebarLinks = [
   { href: "/dashboard", label: "Workspace", Icon: LayoutDashboard, hoverColor: "group-hover:text-blue-400", activeColor: "text-blue-400", activeGlow: "shadow-[0_0_15px_rgba(59,130,246,0.6)]", activeBg: "bg-blue-500/10", indicatorColor: "bg-blue-400" },
-  { href: "/playground", label: "Sandbox", Icon: Terminal, hoverColor: "group-hover:text-emerald-400", activeColor: "text-emerald-400", activeGlow: "shadow-[0_0_15px_rgba(16,185,129,0.6)]", activeBg: "bg-emerald-500/10", indicatorColor: "bg-emerald-400" },
+  { href: "/playground", label: "Playground", Icon: Terminal, hoverColor: "group-hover:text-emerald-400", activeColor: "text-emerald-400", activeGlow: "shadow-[0_0_15px_rgba(16,185,129,0.6)]", activeBg: "bg-emerald-500/10", indicatorColor: "bg-emerald-400" },
   { href: "/learn", label: "Curriculum", Icon: BookOpen, hoverColor: "group-hover:text-amber-400", activeColor: "text-amber-400", activeGlow: "shadow-[0_0_15px_rgba(245,158,11,0.6)]", activeBg: "bg-amber-500/10", indicatorColor: "bg-amber-400" },
   { href: "/dsa", label: "Core CS", Icon: GitBranch, hoverColor: "group-hover:text-rose-400", activeColor: "text-rose-400", activeGlow: "shadow-[0_0_15px_rgba(244,63,94,0.6)]", activeBg: "bg-rose-500/10", indicatorColor: "bg-rose-400" },
   { href: "/practice", label: "Practice", Icon: Code2, hoverColor: "group-hover:text-cyan-400", activeColor: "text-cyan-400", activeGlow: "shadow-[0_0_15px_rgba(34,211,238,0.6)]", activeBg: "bg-cyan-500/10", indicatorColor: "bg-cyan-400" },
@@ -30,9 +30,19 @@ const sidebarLinks = [
 
 export const Sidebar = () => {
   const pathname = usePathname();
-  const { isSidebarCollapsed, toggleSidebar } = usePlatformShell();
+  const {
+    isSidebarCollapsed,
+    toggleSidebar,
+    cancelPlaygroundChromeHide,
+    schedulePlaygroundChromeHide,
+  } = usePlatformShell();
   const isPlaygroundRoute = pathname === "/playground" || pathname.startsWith("/playground/");
   const isAiAssistantRoute = pathname === "/ai-assistant" || pathname.startsWith("/ai-assistant/");
+  const sidebarPanelClassName = isPlaygroundRoute
+    ? "fixed left-0 top-0 z-50 flex h-screen w-[236px] self-start flex-col bg-[#09090b]/95 backdrop-blur-2xl transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+    : `fixed left-0 top-16 mt-0 z-40 flex h-[calc(100vh-4rem)] w-[236px] self-start flex-col bg-[#09090b]/95 backdrop-blur-2xl transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] lg:sticky lg:top-16 lg:z-10 ${
+        isSidebarCollapsed ? "-translate-x-full lg:-ml-[236px]" : "translate-x-0 lg:ml-0"
+      }`;
 
   return (
     <>
@@ -53,7 +63,7 @@ export const Sidebar = () => {
       )}
 
       {/* ── Overlay (mobile) ── */}
-      {!isSidebarCollapsed && (
+      {!isPlaygroundRoute && !isSidebarCollapsed && (
         <div
           className="fixed inset-0 z-30 bg-black/45 backdrop-blur-sm lg:hidden"
           onClick={toggleSidebar}
@@ -62,22 +72,24 @@ export const Sidebar = () => {
 
       {/* ── Sidebar panel ── */}
       <aside
-        className={`fixed left-0 top-16 mt-0 z-40 flex h-[calc(100vh-4rem)] w-[236px] self-start flex-col bg-[#09090b]/95 backdrop-blur-2xl transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] lg:sticky lg:top-16 lg:z-10 ${
-          isSidebarCollapsed ? "-translate-x-full lg:-ml-[236px]" : "translate-x-0 lg:ml-0"
-        }`}
+        className={sidebarPanelClassName}
+        onMouseEnter={isPlaygroundRoute ? cancelPlaygroundChromeHide : undefined}
+        onMouseLeave={isPlaygroundRoute ? schedulePlaygroundChromeHide : undefined}
       >
         <div className="pointer-events-none absolute inset-y-4 right-3 w-px bg-gradient-to-b from-transparent via-white/8 to-transparent" />
 
-        <button
-          className={`absolute right-3 top-5 z-10 flex h-7 w-7 translate-x-1/2 items-center justify-center rounded-full border border-white/8 bg-[#111114]/95 text-zinc-500 shadow-[0_10px_24px_rgba(0,0,0,0.35)] transition-all duration-300 hover:border-white/16 hover:bg-zinc-900 hover:text-white ${
-            isSidebarCollapsed ? "pointer-events-none scale-90 opacity-0" : "scale-100 opacity-100 delay-100"
-          }`}
-          onClick={toggleSidebar}
-          type="button"
-          title="Collapse sidebar"
-        >
-          <ChevronsLeft className="h-3.5 w-3.5" />
-        </button>
+        {!isPlaygroundRoute ? (
+          <button
+            className={`absolute right-3 top-5 z-10 flex h-7 w-7 translate-x-1/2 items-center justify-center rounded-full border border-white/8 bg-[#111114]/95 text-zinc-500 shadow-[0_10px_24px_rgba(0,0,0,0.35)] transition-all duration-300 hover:border-white/16 hover:bg-zinc-900 hover:text-white ${
+              isSidebarCollapsed ? "pointer-events-none scale-90 opacity-0" : "scale-100 opacity-100 delay-100"
+            }`}
+            onClick={toggleSidebar}
+            type="button"
+            title="Collapse sidebar"
+          >
+            <ChevronsLeft className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
 
         <div className="flex flex-col items-start overflow-y-auto px-4 py-5 [&::-webkit-scrollbar]:hidden">
           <nav className="flex w-full flex-col items-start space-y-1.5">

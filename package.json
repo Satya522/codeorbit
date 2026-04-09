@@ -1,6 +1,6 @@
 {
   "name": "codeorbit",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "An integrated developer learning platform built with Next.js, Prisma, Clerk, PartyKit, and AI-assisted workflows.",
   "private": true,
   "license": "UNLICENSED",
@@ -35,8 +35,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check": "npm run prisma:validate && npm run typecheck && npm run lint && npm run build",
+    "check": "npm run prisma:validate && npm run test && npm run typecheck && npm run lint && npm run build",
     "backend:bootstrap": "powershell -ExecutionPolicy Bypass -File scripts/bootstrap-backend.ps1",
     "partykit:dev": "partykit dev",
     "prisma:push": "prisma db push",
@@ -49,6 +50,9 @@
     "@ai-sdk/react": "^3.0.138",
     "@clerk/nextjs": "^7.0.6",
     "@clerk/themes": "^2.4.57",
+    "@fontsource/cascadia-code": "^5.2.3",
+    "@fontsource/fira-code": "^5.2.7",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@monaco-editor/react": "^4.7.0",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/adapter-pg": "^7.5.0",
@@ -59,6 +63,7 @@
     "chart.js": "^4.5.1",
     "framer-motion": "^12.38.0",
     "gsap": "^3.14.2",
+    "hack-font": "^3.3.0",
     "ioredis": "^5.10.1",
     "jszip": "^3.10.1",
     "lucide-react": "^0.577.0",
@@ -88,6 +93,7 @@
     "partykit": "^0.0.115",
     "prisma": "^7.5.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.3"
   }
 }

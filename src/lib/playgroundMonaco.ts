@@ -49,8 +49,22 @@ const javascriptCompletions: PlaygroundCompletion[] = [
     label: "console.log",
     kind: "method",
     insertText: 'console.log(${1:value});',
-    detail: "Browser console output",
+    detail: "Standard output",
     documentation: "Log one or more values to the Output panel.",
+  },
+  {
+    label: "prompt",
+    kind: "function",
+    insertText: 'prompt("${1:Enter a value: }")',
+    detail: "Read from Input tab",
+    documentation: "Consume one line from the Input tab inside the JavaScript runner.",
+  },
+  {
+    label: "input",
+    kind: "function",
+    insertText: 'input("${1:Enter a value: }")',
+    detail: "Read from Input tab",
+    documentation: "CodeOrbit alias for prompt() inside the JavaScript runner.",
   },
   {
     label: "function",
@@ -142,7 +156,7 @@ const javaCompletions: PlaygroundCompletion[] = [
     insertText:
       "Scanner ${1:sc} = new Scanner(System.in);\n${2:int value = sc.nextInt();}",
     detail: "Standard input",
-    documentation: "Read input using java.util.Scanner.",
+    documentation: "Read input using java.util.Scanner. Common Java imports are auto-added in the runner.",
   },
   {
     label: "for",

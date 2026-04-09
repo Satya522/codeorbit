@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { motion } from "framer-motion";
@@ -10,7 +11,9 @@ import {
   FileCode2,
   Keyboard,
   LoaderCircle,
+  Maximize2,
   Menu,
+  Minimize2,
   PencilLine,
   Play,
   Plus,
@@ -38,6 +41,15 @@ type LanguageOption = {
   runtime: string;
   accentRgb: string;
   engineLanguage?: string;
+};
+
+type SandboxFontId = "jetbrains-mono" | "fira-code" | "hack" | "cascadia-code";
+
+type SandboxFontOption = {
+  id: SandboxFontId;
+  label: string;
+  stack: string;
+  preview: string;
 };
 
 type HtmlWorkspaceFileId = "markup" | "styles" | "script";
@@ -79,7 +91,7 @@ const languageOptions: LanguageOption[] = [
     iconPath: "/icons/languages/java.png",
     monaco: "java",
     filename: "Main.java",
-    description: "JDK compilation with stdin support and structured runtime feedback.",
+    description: "JDK compilation with stdin support, runtime feedback, and auto-added common imports.",
     runtime: "Remote JDK 17",
     accentRgb: "249,115,22",
     engineLanguage: "java",
@@ -109,7 +121,7 @@ const languageOptions: LanguageOption[] = [
     iconPath: "/icons/languages/javascript.png",
     monaco: "javascript",
     filename: "main.js",
-    description: "Node-style remote JavaScript execution with console output support.",
+    description: "Node-style remote JavaScript execution with Input-tab prompts. Browser npm packages belong in WebCore.",
     runtime: "Remote Node",
     accentRgb: "251,191,36",
     engineLanguage: "javascript",
@@ -157,7 +169,7 @@ func main() {
     iconPath: "/icons/languages/html.png",
     monaco: "html",
     filename: "index.html",
-    description: "Build HTML, CSS, and JavaScript together in one live browser workspace.",
+    description: "Build HTML, CSS, and JavaScript together in one live browser workspace with browser packages.",
     runtime: "Browser Preview",
     accentRgb: "56,189,248",
     starter: `<!DOCTYPE html>
@@ -219,6 +231,34 @@ const starterTemplates = Object.fromEntries(languageOptions.map((option) => [opt
 const playgroundLanguageStorageKey = "codeorbit:playground:language";
 const playgroundCodesStorageKey = "codeorbit:playground:codes";
 const htmlWorkspaceStorageKey = "codeorbit:playground:html-workspace";
+const playgroundEditorFontStorageKey = "codeorbit:playground:editor-font";
+const playgroundEditorFontSize = 14.5;
+const sandboxFontOptions: SandboxFontOption[] = [
+  {
+    id: "jetbrains-mono",
+    label: "JetBrains Mono",
+    stack: "'JetBrains Mono', 'SF Mono', Consolas, monospace",
+    preview: "Smooth, modern, and balanced.",
+  },
+  {
+    id: "fira-code",
+    label: "Fira Code",
+    stack: "'Fira Code', 'SF Mono', Consolas, monospace",
+    preview: "Ligature-friendly coding font.",
+  },
+  {
+    id: "hack",
+    label: "Hack",
+    stack: "'Hack', 'SF Mono', Consolas, monospace",
+    preview: "Crisp and compact terminal feel.",
+  },
+  {
+    id: "cascadia-code",
+    label: "Cascadia Code",
+    stack: "'Cascadia Code', 'Cascadia Mono', 'SF Mono', Consolas, monospace",
+    preview: "Wide, readable, and VS-style.",
+  },
+] as const;
 
 const htmlWorkspaceFiles = {
   markup: {
@@ -352,6 +392,13 @@ writeMessage("Preview ready. Click the button to test the JavaScript file.");`,
   },
 } as const;
 
+function clearStoredPlaygroundState() {
+  window.localStorage.removeItem(playgroundCodesStorageKey);
+  window.localStorage.removeItem(playgroundLanguageStorageKey);
+  window.localStorage.removeItem(htmlWorkspaceStorageKey);
+  window.localStorage.removeItem(playgroundEditorFontStorageKey);
+}
+
 function buildDefaultCodeMap() {
   return {
     java: starterTemplates.java,
@@ -366,6 +413,10 @@ function buildDefaultCodeMap() {
 
 function isLanguageId(value: string): value is LanguageId {
   return languageOptions.some((option) => option.id === value);
+}
+
+function isSandboxFontId(value: string): value is SandboxFontId {
+  return sandboxFontOptions.some((option) => option.id === value);
 }
 
 function isHtmlWorkspaceFileId(value: string): value is HtmlWorkspaceFileId {
@@ -862,9 +913,12 @@ function PanelResizeHandle(props: React.ComponentProps<typeof Separator>) {
 }
 
 export function PlaygroundShell() {
+  const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
   const { isSidebarCollapsed, toggleSidebar } = usePlatformShell();
   const [activeLang, setActiveLang] = useState<LanguageId>("javascript");
+  const [editorFont, setEditorFont] = useState<SandboxFontId>("jetbrains-mono");
   const [activeTab, setActiveTab] = useState<"output" | "errors" | "input">("output");
+  const [isPlaygroundFullscreen, setIsPlaygroundFullscreen] = useState(false);
   const [isWebCoreActionsOpen, setIsWebCoreActionsOpen] = useState(false);
   const [webCoreActionsPosition, setWebCoreActionsPosition] = useState<{ top: number; left: number } | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -878,13 +932,30 @@ export function PlaygroundShell() {
   const [sqlTables, setSqlTables] = useState<SqlResultTable[]>([]);
   const [execTimeMs, setExecTimeMs] = useState<number | null>(null);
   const [hasRestoredPlaygroundState, setHasRestoredPlaygroundState] = useState(false);
+  const playgroundRootRef = useRef<HTMLDivElement | null>(null);
   const runStartRef = useRef<number>(0);
   const webCoreActionsButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const lang = languageOptions.find((option) => option.id === activeLang) ?? languageOptions[0];
+  const selectedEditorFont =
+    sandboxFontOptions.find((option) => option.id === editorFont) ?? sandboxFontOptions[0];
+  const editorFontStack = selectedEditorFont.stack;
 
   useEffect(() => {
+    if (!isAuthLoaded) {
+      return;
+    }
+
     try {
+      if (!isSignedIn) {
+        clearStoredPlaygroundState();
+        setActiveLang("javascript");
+        setEditorFont("jetbrains-mono");
+        setCodes(buildDefaultCodeMap());
+        setHtmlWorkspace(buildDefaultHtmlWorkspace());
+        return;
+      }
+
       const storedCodes = window.localStorage.getItem(playgroundCodesStorageKey);
       const defaultCodes = buildDefaultCodeMap();
       let restoredHtmlMarkup: string | undefined;
@@ -917,26 +988,37 @@ export function PlaygroundShell() {
       if (storedLanguage && isLanguageId(storedLanguage)) {
         setActiveLang(storedLanguage);
       }
+
+      const storedEditorFont = window.localStorage.getItem(playgroundEditorFontStorageKey);
+      if (storedEditorFont && isSandboxFontId(storedEditorFont)) {
+        setEditorFont(storedEditorFont);
+      }
     } catch (error) {
       console.warn("Unable to restore playground state", error);
     } finally {
       setHasRestoredPlaygroundState(true);
     }
-  }, []);
+  }, [isAuthLoaded, isSignedIn]);
 
   useEffect(() => {
-    if (!hasRestoredPlaygroundState) {
+    if (!hasRestoredPlaygroundState || !isAuthLoaded) {
       return;
     }
 
     try {
+      if (!isSignedIn) {
+        clearStoredPlaygroundState();
+        return;
+      }
+
       window.localStorage.setItem(playgroundCodesStorageKey, JSON.stringify(codes));
       window.localStorage.setItem(playgroundLanguageStorageKey, activeLang);
       window.localStorage.setItem(htmlWorkspaceStorageKey, JSON.stringify(htmlWorkspace));
+      window.localStorage.setItem(playgroundEditorFontStorageKey, editorFont);
     } catch (error) {
       console.warn("Unable to persist playground state", error);
     }
-  }, [activeLang, codes, hasRestoredPlaygroundState, htmlWorkspace]);
+  }, [activeLang, codes, editorFont, hasRestoredPlaygroundState, htmlWorkspace, isAuthLoaded, isSignedIn]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -953,6 +1035,19 @@ export function PlaygroundShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isRunning, activeLang, codes]);
 
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsPlaygroundFullscreen(document.fullscreenElement === playgroundRootRef.current);
+    };
+
+    syncFullscreenState();
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+    };
+  }, []);
+
   const clearRunState = useCallback(() => {
     setOutputStr("");
     setErrorStr("");
@@ -966,6 +1061,25 @@ export function PlaygroundShell() {
     setHasRun(false);
     setActiveTab("output");
   }, [clearRunState]);
+
+  const togglePlaygroundFullscreen = useCallback(async () => {
+    const rootElement = playgroundRootRef.current;
+
+    if (!rootElement || typeof document === "undefined") {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement === rootElement) {
+        await document.exitFullscreen();
+        return;
+      }
+
+      await rootElement.requestFullscreen();
+    } catch (error) {
+      console.warn("Unable to toggle playground fullscreen mode.", error);
+    }
+  }, []);
 
   const handleLanguageChange = useCallback(
     (next: LanguageId) => {
@@ -1512,9 +1626,12 @@ export function PlaygroundShell() {
     }
   };
 
-  const stdinHint = remoteExecutionLanguages.includes(activeLang)
-    ? "Provide stdin here. Use new lines for multiple reads."
-    : "Stdin is used by the remote execution languages.";
+  const stdinHint =
+    activeLang === "javascript"
+      ? "JavaScript: add one answer per line here. prompt(), confirm(), and input() read from this tab."
+      : remoteExecutionLanguages.includes(activeLang)
+        ? "Provide stdin here. Use new lines for multiple reads."
+        : "Stdin is used by the remote execution languages.";
 
   const hasErrors = errorStr.length > 0;
 
@@ -1543,7 +1660,7 @@ export function PlaygroundShell() {
           {outputStr ? (
             <div 
               className="rounded-xl border border-[#00ffa3]/10 bg-[#00ffa3]/5 px-4 py-3 text-[12px] font-medium text-[#00ffa3]"
-              style={{ fontFamily: "var(--font-mono), 'SF Mono', monospace" }}
+              style={{ fontFamily: editorFontStack }}
             >
               {outputStr}
             </div>
@@ -1581,6 +1698,7 @@ export function PlaygroundShell() {
                           <td
                             key={valueIndex}
                             className="border-b border-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200"
+                            style={{ fontFamily: editorFontStack }}
                           >
                             {value === null ? <span className="italic text-zinc-600">NULL</span> : String(value)}
                           </td>
@@ -1604,11 +1722,11 @@ export function PlaygroundShell() {
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
               <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-500">Output</span>
             </div>
-            {execTimeMs !== null ? <span className="font-mono text-[10px] text-zinc-600">{execTimeMs}ms</span> : null}
+            {execTimeMs !== null ? <span className="text-[10px] text-zinc-600" style={{ fontFamily: editorFontStack }}>{execTimeMs}ms</span> : null}
           </div>
           <pre 
             className="rounded-xl bg-transparent p-1 text-[11px] leading-7 text-zinc-400"
-            style={{ fontFamily: "var(--font-mono), 'SF Mono', monospace" }}
+            style={{ fontFamily: editorFontStack }}
           >
             {outputStr}
           </pre>
@@ -1654,7 +1772,10 @@ export function PlaygroundShell() {
   };
 
   return (
-    <div className="relative flex h-full w-full flex-col overflow-hidden bg-[#020202] font-sans tracking-tight text-white">
+    <div
+      ref={playgroundRootRef}
+      className="relative flex h-full w-full flex-col overflow-hidden bg-[#020202] font-sans tracking-tight text-white"
+    >
       {activeLang === "html" && isWebCoreActionsOpen && webCoreActionsPosition ? (
         <div className="fixed inset-0 z-40 bg-[#020202]/84 backdrop-blur-[3px]" onClick={closeWebCoreActions}>
           <div
@@ -1990,7 +2111,7 @@ export function PlaygroundShell() {
                 onClick={toggleWebCoreActions}
                 type="button"
               >
-                Files
+                Files & Packages
                 <ChevronDown
                   className={`h-3.5 w-3.5 transition-transform duration-300 ${isWebCoreActionsOpen ? "rotate-180" : ""}`}
                 />
@@ -2001,7 +2122,7 @@ export function PlaygroundShell() {
           {activeLang === "javascript" ? (
             <div className="hidden flex-shrink-0 items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/5 px-3 py-1.5 2xl:flex">
               <span className="text-[11px] font-medium text-cyan-200">
-                JavaScript runs in Node. Use WebCore for DOM code and live browser preview.
+                JavaScript runs in Node. prompt() and input() read from the Input tab, and WebCore handles DOM code plus browser packages.
               </span>
             </div>
           ) : null}
@@ -2016,6 +2137,43 @@ export function PlaygroundShell() {
                 Browser Preview
               </button>
             ) : null}
+
+            <div className="group relative">
+              <div
+                className={`pointer-events-none absolute inset-0 rounded-full blur-xl transition-all duration-300 ${
+                  isPlaygroundFullscreen
+                    ? "bg-cyan-400/25 opacity-100"
+                    : "bg-fuchsia-500/12 opacity-0 group-hover:opacity-100"
+                }`}
+              />
+              <button
+                aria-label={isPlaygroundFullscreen ? "Exit fullscreen mode" : "Enter fullscreen mode"}
+                className={`relative inline-flex h-10 w-10 items-center justify-center rounded-full border text-zinc-200 transition-all duration-300 hover:scale-[1.04] hover:text-white ${
+                  isPlaygroundFullscreen
+                    ? "border-cyan-300/35 bg-cyan-400/12 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
+                    : "border-white/10 bg-white/[0.04] hover:border-cyan-300/30 hover:bg-white/[0.08]"
+                }`}
+                onClick={() => {
+                  void togglePlaygroundFullscreen();
+                }}
+                type="button"
+                title={isPlaygroundFullscreen ? "Minimize playground" : "Fullscreen playground"}
+              >
+                <div
+                  className={`absolute inset-[1px] rounded-full transition-opacity duration-300 ${
+                    isPlaygroundFullscreen
+                      ? "bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),rgba(8,47,73,0.08)_60%,transparent)] opacity-100"
+                      : "bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_65%)] opacity-70 group-hover:opacity-100"
+                  }`}
+                />
+                <span className="relative z-10">
+                  {isPlaygroundFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                </span>
+              </button>
+              <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-full border border-white/10 bg-[#09090d]/96 px-3 py-1 text-[10px] font-semibold text-zinc-200 opacity-0 shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition-all duration-300 group-hover:block group-hover:translate-y-0 group-hover:opacity-100">
+                {isPlaygroundFullscreen ? "Exit Focus Mode" : "Enter Focus Mode"}
+              </span>
+            </div>
 
             <button
               className="group relative overflow-hidden rounded-full p-[1px] shadow-[0_0_20px_rgba(168,85,247,0.15)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(34,211,238,0.25)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -2054,7 +2212,8 @@ export function PlaygroundShell() {
                             }`}
                           >
                             <button
-                              className="rounded-full px-2.5 py-1.5 font-mono sm:px-3"
+                              className="rounded-full px-2.5 py-1.5 sm:px-3"
+                              style={{ fontFamily: editorFontStack }}
                               onClick={() =>
                                 setHtmlWorkspace((current) => ({
                                   ...current,
@@ -2112,7 +2271,7 @@ export function PlaygroundShell() {
                       <FileCode2 className="h-4 w-4 text-purple-400" />
                       Editor
                     </div>
-                    <div className="font-mono text-[11px] text-zinc-500">{editorFilename}</div>
+                    <div className="text-[11px] text-zinc-500" style={{ fontFamily: editorFontStack }}>{editorFilename}</div>
                   </>
                 )}
               </div>
@@ -2157,8 +2316,8 @@ export function PlaygroundShell() {
                   automaticLayout: true,
                   bracketPairColorization: { enabled: false },
                   wordWrap: "on",
-                  fontSize: 11.25,
-                  fontFamily: "var(--font-mono), 'SF Mono', monospace",
+                  fontSize: playgroundEditorFontSize,
+                  fontFamily: editorFontStack,
                   fontLigatures: true,
                   inlineSuggest: { enabled: true },
                   lineHeight: 1.6,
@@ -2189,7 +2348,37 @@ export function PlaygroundShell() {
                 theme="codeorbit-dark"
                 value={editorValue}
               />
-            </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] bg-black/20 px-3 py-2 sm:px-4">
+                <div className="flex items-center gap-2 text-[10px] text-zinc-500 sm:text-[10.5px]">
+                  <Keyboard className="h-3.5 w-3.5 text-zinc-500" />
+                  <span className="font-semibold uppercase tracking-[0.16em]">Editor Font</span>
+                  <span className="hidden text-zinc-600 sm:inline">{selectedEditorFont.preview}</span>
+                </div>
+
+                <div className="relative min-w-[180px] max-w-full rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 transition-all duration-300 hover:border-white/[0.12]">
+                  <select
+                    aria-label="Choose playground editor font"
+                    className="w-full appearance-none bg-transparent pr-6 text-[11px] font-semibold text-zinc-200 outline-none"
+                    onChange={(event) => setEditorFont(event.target.value as SandboxFontId)}
+                    style={{ fontFamily: editorFontStack }}
+                    value={editorFont}
+                  >
+                    {sandboxFontOptions.map((option) => (
+                      <option
+                        key={option.id}
+                        value={option.id}
+                        className="bg-[#050505] text-zinc-100"
+                        style={{ fontFamily: option.stack }}
+                      >
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+                </div>
+              </div>
           </PanelShell>
           </Panel>
 
@@ -2241,7 +2430,7 @@ export function PlaygroundShell() {
                   </button>
                 </div>
 
-                {execTimeMs !== null ? <span className="font-mono text-[11px] text-zinc-600">{execTimeMs}ms</span> : null}
+                {execTimeMs !== null ? <span className="text-[11px] text-zinc-600" style={{ fontFamily: editorFontStack }}>{execTimeMs}ms</span> : null}
               </div>
 
             <div className="min-h-0 flex-1 overflow-auto bg-[#060609]">
@@ -2254,7 +2443,10 @@ export function PlaygroundShell() {
                       <AlertTriangle className="h-4 w-4 text-red-400" />
                       <span className="text-[11px] font-semibold text-red-300">Stderr</span>
                     </div>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-red-400/10 bg-red-500/[0.04] p-4 font-mono text-[11px] leading-6 text-red-200 shadow-inner [overflow-wrap:anywhere]">
+                    <pre
+                      className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-red-400/10 bg-red-500/[0.04] p-4 text-[11px] leading-6 text-red-200 shadow-inner [overflow-wrap:anywhere]"
+                      style={{ fontFamily: editorFontStack }}
+                    >
                       {errorStr}
                     </pre>
                   </div>
@@ -2281,7 +2473,7 @@ export function PlaygroundShell() {
                   </div>
                   <textarea
                     className="min-h-0 flex-1 resize-none bg-transparent px-4 py-4 text-[12px] leading-6 text-[#00ffa3] outline-none placeholder:text-zinc-700"
-                    style={{ fontFamily: "var(--font-mono), 'SF Mono', monospace" }}
+                    style={{ fontFamily: editorFontStack }}
                     onChange={(event) => setInputStr(event.target.value)}
                     placeholder={stdinHint}
                     value={inputStr}

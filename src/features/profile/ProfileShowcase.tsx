@@ -12,6 +12,7 @@ import {
   EnvelopeSimple,
   GithubLogo,
   GoogleLogo,
+  LinkedinLogo,
   Phone,
   ShieldCheck,
   Sparkle,
@@ -23,6 +24,7 @@ import { usePracticeProgressSync } from "@/features/practice/usePracticeProgress
 import {
   formatRelativeTime,
   getInitials,
+  hasMeaningfulProfileUrl,
   readNumericMetadata,
 } from "@/features/profile/profile-types";
 import { useProfileConnections } from "@/features/profile/useProfileConnections";
@@ -36,6 +38,10 @@ function resolveProviderLabel(provider: string) {
 
   if (normalized.includes("github")) {
     return "GitHub";
+  }
+
+  if (normalized.includes("linkedin")) {
+    return "LinkedIn";
   }
 
   if (normalized.includes("google")) {
@@ -63,6 +69,7 @@ export function ProfileShowcase() {
   const [showPhotoAfterglow, setShowPhotoAfterglow] = useState(false);
 
   const githubConnection = connections.find((item) => item.provider === "GITHUB") ?? null;
+  const linkedinConnection = connections.find((item) => item.provider === "LINKEDIN") ?? null;
   const progressEntries = useMemo(() => Object.values(progressMap), [progressMap]);
   const solvedCount = progressEntries.filter((item) => item.status === "solved").length;
   const socialProviders = useMemo(() => {
@@ -219,8 +226,8 @@ export function ProfileShowcase() {
                 <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">{profileName}</h1>
                 <p className="mt-1 text-sm font-medium text-cyan-200">{profileHandle}</p>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-                  This page now renders the real profile surface for your signed-in user, including synced GitHub repos
-                  and live practice progress.
+                  This page now renders the real profile surface for your signed-in user, including synced GitHub repos,
+                  LinkedIn profile signals, and live practice progress.
                 </p>
                 {isSignedIn ? (
                   <div className="mt-4 space-y-2">
@@ -406,7 +413,7 @@ export function ProfileShowcase() {
                 </span>
               </div>
               <p className="mt-2 text-sm text-zinc-400">
-                GitHub, Google, email, aur phone jo bhi Clerk par connected hai, wo yahan live render hoga.
+                GitHub, LinkedIn, Google, email, aur phone jo bhi Clerk par connected hai, wo yahan live render hoga.
               </p>
 
               <div className="mt-5 space-y-5">
@@ -416,6 +423,7 @@ export function ProfileShowcase() {
                     {socialProviders.length > 0 ? socialProviders.map((provider) => (
                       <div key={provider.label} className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white">
                         {provider.label === "GitHub" ? <GithubLogo size={16} weight="fill" /> : null}
+                        {provider.label === "LinkedIn" ? <LinkedinLogo size={16} weight="fill" className="text-sky-300" /> : null}
                         {provider.label === "Google" ? <GoogleLogo size={16} weight="fill" className="text-sky-300" /> : null}
                         <span>{provider.label}</span>
                         {provider.detail ? <span className="text-xs text-zinc-400">{provider.detail}</span> : null}
@@ -466,7 +474,21 @@ export function ProfileShowcase() {
               <div className="mt-4 space-y-3 text-sm text-zinc-400">
                 <p>GitHub followers visible: <span className="font-medium text-white">{readNumericMetadata(githubConnection?.metadata ?? null, "followers")}</span></p>
                 <p>GitHub public repos visible: <span className="font-medium text-white">{readNumericMetadata(githubConnection?.metadata ?? null, "publicRepos")}</span></p>
-                <p>Profile sync status: <span className="font-medium text-white">{githubConnection ? "GitHub connected" : "Waiting for GitHub sync"}</span></p>
+                <p>GitHub sync status: <span className="font-medium text-white">{githubConnection ? "GitHub connected" : "Waiting for GitHub sync"}</span></p>
+                <p>LinkedIn sync status: <span className="font-medium text-white">{linkedinConnection ? "LinkedIn connected" : "Waiting for LinkedIn sync"}</span></p>
+                {linkedinConnection && hasMeaningfulProfileUrl(linkedinConnection) ? (
+                  <p>
+                    LinkedIn profile:{" "}
+                    <a
+                      className="font-medium text-cyan-300 hover:text-cyan-200"
+                      href={linkedinConnection.profileUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Open profile
+                    </a>
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>

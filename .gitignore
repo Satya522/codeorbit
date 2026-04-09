@@ -39,6 +39,9 @@ yarn-error.log*
 .partykit/
 .vscode/
 postgres-local.log
+.codex-artifacts/
+.codex-next.err.log
+.codex-next.out.log
 
 # vercel
 .vercel

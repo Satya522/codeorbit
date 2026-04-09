@@ -33,12 +33,12 @@ async function readRemotePracticeProgress() {
   const response = await fetch("/api/practice/progress", {
     cache: "no-store",
   });
+  const payload = (await response.json()) as ProgressResponse;
 
   if (!response.ok) {
-    throw new Error("Unable to fetch synced practice progress.");
+    throw new Error(payload.error || "Unable to fetch synced practice progress.");
   }
 
-  const payload = (await response.json()) as ProgressResponse;
   return toProgressMap(payload.progress);
 }
 
@@ -50,12 +50,12 @@ async function syncEntriesToServer(entries: StoredPracticeQuestionProgress[]) {
     },
     method: "POST",
   });
+  const payload = (await response.json()) as ProgressResponse;
 
   if (!response.ok) {
-    throw new Error("Unable to sync practice progress to the server.");
+    throw new Error(payload.error || "Unable to sync practice progress to the server.");
   }
 
-  const payload = (await response.json()) as ProgressResponse;
   return toProgressMap(payload.progress);
 }
 
@@ -67,12 +67,12 @@ async function removeEntriesFromServer(slugs: string[]) {
     },
     method: "DELETE",
   });
+  const payload = (await response.json()) as ProgressResponse;
 
   if (!response.ok) {
-    throw new Error("Unable to clear synced practice progress.");
+    throw new Error(payload.error || "Unable to clear synced practice progress.");
   }
 
-  const payload = (await response.json()) as ProgressResponse;
   return toProgressMap(payload.progress);
 }
 

@@ -88,3 +88,9 @@ export const redis = {
     }
   },
 };
+
+export function resetRedisMemoryStoreForTests() {
+  if (process.env.NODE_ENV === "test") {
+    memoryStore.clear();
+  }
+}

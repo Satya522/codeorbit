@@ -2,7 +2,7 @@ export function PlaygroundHeader() {
   return (
     <div className="flex justify-between items-center px-4 py-3 bg-surface border-b border-border">
       <div className="flex items-center gap-3">
-        <h2 className="text-white font-bold tracking-tight">CodeSandbox</h2>
+        <h2 className="text-white font-bold tracking-tight">CodeOrbit Playground</h2>
         <span className="px-2 py-0.5 rounded-md bg-zinc-800 text-xs text-zinc-400 font-medium">Draft - Untitled</span>
       </div>
       <div className="flex items-center gap-3">

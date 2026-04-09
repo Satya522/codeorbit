@@ -155,7 +155,7 @@ export const Navbar = () => {
               className="hidden min-[1150px]:flex group shrink-0 items-center justify-center gap-2 rounded-full border border-white/[0.05] bg-white/[0.02] px-3 sm:px-5 py-2 sm:py-2.5 text-[12px] sm:text-[14px] font-semibold text-zinc-300 transition-all hover:bg-white/[0.06] hover:text-white hover:border-white/10 hover:shadow-[0_0_20px_rgba(255,255,255,0.05)]"
             >
               <TerminalSquare className="h-4 w-4 text-cyan-400 group-hover:text-cyan-300 shrink-0" />
-              <span className="hidden sm:inline">Sandbox</span>
+              <span className="hidden sm:inline">Playground</span>
             </Link>
 
             <Link

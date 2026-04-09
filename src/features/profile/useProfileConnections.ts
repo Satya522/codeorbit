@@ -130,7 +130,7 @@ export function useProfileConnections() {
       });
       const nextPayload = await readConnectionsPayload(
         response,
-        "Unable to save your GitHub sync right now.",
+        "Unable to save your social connection right now.",
       );
 
       setSetupRequired(Boolean(nextPayload.setupRequired));
@@ -161,7 +161,7 @@ export function useProfileConnections() {
       });
       const nextPayload = await readConnectionsPayload(
         response,
-        "Unable to remove your GitHub sync right now.",
+        "Unable to remove your social connection right now.",
       );
 
       setSetupRequired(Boolean(nextPayload.setupRequired));

@@ -1,5 +1,11 @@
 @import "tailwindcss";
 @import "bootstrap-icons/font/bootstrap-icons.css";
+@import "@fontsource/fira-code/latin.css";
+@import "@fontsource/jetbrains-mono/latin.css";
+@import "@fontsource/jetbrains-mono/latin-italic.css";
+@import "@fontsource/cascadia-code/latin.css";
+@import "@fontsource/cascadia-code/latin-italic.css";
+@import "hack-font/build/web/hack.css";
 @plugin "@tailwindcss/typography";
 @custom-variant dark (&:where(.dark, .dark *));
 

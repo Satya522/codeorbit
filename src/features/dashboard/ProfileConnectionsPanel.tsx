@@ -8,6 +8,7 @@ import {
   CloudCheck,
   CloudSlash,
   GithubLogo,
+  LinkedinLogo,
   LinkSimple,
   Sparkle,
   WarningCircle,
@@ -118,6 +119,7 @@ export function ProfileConnectionsPanel() {
   const { isSyncing, progressMap, syncError } = usePracticeProgressSync();
   const { activeAction, clerkSuggestions, connectConnection, connections, disconnectConnection, isLoadingConnections, isSignedIn, panelError, setupRequired } = useProfileConnections();
   const [githubInput, setGithubInput] = useState("");
+  const [linkedinInput, setLinkedinInput] = useState("");
 
   const entries = useMemo(() => Object.values(progressMap), [progressMap]);
   const solvedQuestions = entries.filter((entry) => entry.status === "solved").length;
@@ -127,8 +129,12 @@ export function ProfileConnectionsPanel() {
   const githubConnection = connections.find((item) => item.provider === "GITHUB") ?? null;
   const githubSuggestion = clerkSuggestions.find((item) => item.provider === "GITHUB") ?? null;
   const githubManaged = isClerkManagedConnection(githubConnection);
+  const linkedinConnection = connections.find((item) => item.provider === "LINKEDIN") ?? null;
+  const linkedinSuggestion = clerkSuggestions.find((item) => item.provider === "LINKEDIN") ?? null;
+  const linkedinManaged = isClerkManagedConnection(linkedinConnection);
   const profileName = user?.fullName || [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim() || user?.username || "Orbit learner";
   const githubPrefill = githubConnection?.handle || githubConnection?.profileUrl || githubSuggestion?.handle || "";
+  const linkedinPrefill = linkedinConnection?.profileUrl || linkedinSuggestion?.profileUrl || "";
 
   return (
     <section className={panelClass}>
@@ -140,7 +146,7 @@ export function ProfileConnectionsPanel() {
               Profile Sync
             </div>
             <h2 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Keep your profile, projects, and cloud progress in one place</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Clerk-connected GitHub can now import in one click, while your real repos also render on the actual profile page.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">Clerk-connected GitHub and LinkedIn can now import in one click, while your real profile signals render on the actual profile page.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isLoadingConnections ? <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs text-zinc-300"><ArrowsClockwise className="animate-spin" size={14} weight="bold" />Loading connections</div> : null}
@@ -232,6 +238,62 @@ export function ProfileConnectionsPanel() {
                   </div>
                 </div>
                 <div className="mt-4"><RepoList connection={githubConnection} /></div>
+              </div>
+            ) : null}
+
+            <div className="my-6 border-t border-white/10" />
+
+            <div className="flex items-center gap-2 text-sm font-semibold text-white"><LinkedinLogo size={20} weight="fill" />LinkedIn Sync</div>
+            <p className="mt-2 text-sm text-zinc-400">Import from Clerk or connect a public LinkedIn profile URL.</p>
+
+            {!linkedinConnection && linkedinSuggestion ? (
+              <div className="mt-4">
+                <SuggestionBanner actionLabel="Import from Clerk" activeAction={activeAction} onImport={() => connectConnection({ provider: "LINKEDIN", useClerkAccount: true }, "connect-LINKEDIN")} suggestion={linkedinSuggestion} />
+              </div>
+            ) : null}
+
+            <div className="mt-4 space-y-3">
+              {linkedinManaged ? (
+                <div className="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm text-cyan-50">
+                  LinkedIn is being sourced from your Clerk account.
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button className={buttonClass} disabled={activeAction !== ""} onClick={() => connectConnection({ provider: "LINKEDIN", useClerkAccount: true }, "refresh-LINKEDIN")} type="button">Refresh from Clerk</button>
+                    <button className={buttonClass} disabled={activeAction !== ""} onClick={() => {
+                      setLinkedinInput("");
+                      disconnectConnection("LINKEDIN");
+                    }} type="button">Disconnect</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <input className={inputClass} disabled={!isSignedIn} onChange={(event) => setLinkedinInput(event.target.value)} placeholder="linkedin.com/in/your-name" value={linkedinInput || linkedinPrefill} />
+                  <div className="flex flex-wrap gap-2">
+                    <button className={buttonClass} disabled={!isSignedIn || !(linkedinInput || linkedinPrefill).trim() || activeAction !== ""} onClick={() => connectConnection({ identifier: (linkedinInput || linkedinPrefill).trim(), provider: "LINKEDIN" }, linkedinConnection ? "refresh-LINKEDIN" : "connect-LINKEDIN")} type="button">
+                      {activeAction === "connect-LINKEDIN" || activeAction === "refresh-LINKEDIN" ? <ArrowsClockwise className="animate-spin" size={16} weight="bold" /> : <LinkSimple size={16} weight="bold" />}
+                      {linkedinConnection ? "Refresh profile" : "Connect LinkedIn"}
+                    </button>
+                    {linkedinConnection ? <button className={buttonClass} disabled={activeAction !== ""} onClick={() => {
+                      setLinkedinInput("");
+                      disconnectConnection("LINKEDIN");
+                    }} type="button">Disconnect</button> : null}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {linkedinConnection ? (
+              <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-white">{linkedinConnection.displayName || linkedinConnection.handle}</p>
+                    <p className="mt-1 text-sm text-zinc-400">{linkedinConnection.headline}</p>
+                  </div>
+                  {hasMeaningfulProfileUrl(linkedinConnection) ? <a className="text-zinc-500 hover:text-cyan-300" href={linkedinConnection.profileUrl} rel="noreferrer" target="_blank"><ArrowSquareOut size={16} weight="bold" /></a> : null}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-300">
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1">{linkedinManaged ? "Clerk managed" : "Manual URL sync"}</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1">{formatRelativeTime(linkedinConnection.updatedAt)}</span>
+                </div>
               </div>
             ) : null}
           </div>
