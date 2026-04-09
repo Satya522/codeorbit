@@ -2,7 +2,7 @@
 
 import type { EditorProps } from "@monaco-editor/react";
 
-type MonacoInstance = Parameters<NonNullable<EditorProps["beforeMount"]>>[0];
+export type MonacoInstance = Parameters<NonNullable<EditorProps["beforeMount"]>>[0];
 type CompletionKind =
   | "class"
   | "constructor"
@@ -26,6 +26,21 @@ type PlaygroundCompletion = {
   kind: CompletionKind;
   label: string;
 };
+
+export type PlaygroundMonacoWorkspaceFile = {
+  language: string;
+  path: string;
+  value: string;
+};
+
+export type PlaygroundMonacoWorkspacePackage = {
+  name: string;
+  specifier: string;
+};
+
+const playgroundWorkspaceRoot = "file:///codeorbit-playground";
+const runtimeDeclarationsPath = `${playgroundWorkspaceRoot}/types/codeorbit-playground-runtime.d.ts`;
+const packageDeclarationsPath = `${playgroundWorkspaceRoot}/types/codeorbit-webcore-packages.d.ts`;
 
 const completionKinds: Record<CompletionKind, string> = {
   class: "Class",
@@ -207,6 +222,37 @@ const htmlCompletions: PlaygroundCompletion[] = [
   },
 ];
 
+const cssCompletions: PlaygroundCompletion[] = [
+  {
+    label: "display: grid",
+    kind: "snippet",
+    insertText: "display: grid;\nplace-items: center;",
+    detail: "Grid layout",
+    documentation: "Center content quickly with CSS Grid.",
+  },
+  {
+    label: "display: flex",
+    kind: "snippet",
+    insertText: "display: flex;\nalign-items: center;\njustify-content: center;",
+    detail: "Flex layout",
+    documentation: "Create a centered flex container.",
+  },
+  {
+    label: "background: linear-gradient",
+    kind: "snippet",
+    insertText: "background: linear-gradient(135deg, ${1:#8b5cf6}, ${2:#06b6d4});",
+    detail: "Gradient background",
+    documentation: "Apply a smooth linear gradient background.",
+  },
+  {
+    label: "@media",
+    kind: "snippet",
+    insertText: "@media (max-width: ${1:768px}) {\n  ${2:.selector} {\n    ${3:display: none;}\n  }\n}",
+    detail: "Responsive breakpoint",
+    documentation: "Add a responsive media query block.",
+  },
+];
+
 const sqlCompletions: PlaygroundCompletion[] = [
   {
     label: "SELECT",
@@ -367,6 +413,152 @@ function registerProvider(
 }
 
 let playgroundMonacoConfigured = false;
+let codeorbitRuntimeLibDisposable: { dispose(): void } | null = null;
+let webcorePackagesLibDisposable: { dispose(): void } | null = null;
+let syncedWorkspaceModelPaths = new Set<string>();
+
+function buildRuntimeDeclarations() {
+  return [
+    "declare function input(prompt?: string): string;",
+    "declare function prompt(message?: string): string;",
+    "declare function alert(message?: string): void;",
+    "declare module \"*.css\" {",
+    "  const href: string;",
+    "  export default href;",
+    "}",
+    "declare module \"*.html\" {",
+    "  const markup: string;",
+    "  export default markup;",
+    "}",
+  ].join("\n");
+}
+
+function buildWebCorePackageDeclarations(packages: PlaygroundMonacoWorkspacePackage[]) {
+  if (packages.length === 0) {
+    return "export {};";
+  }
+
+  return packages
+    .map((pkg) =>
+      [
+        `declare module "${pkg.name}" {`,
+        "  const mod: any;",
+        "  export default mod;",
+        "}",
+        `declare module "${pkg.name}/*" {`,
+        "  const mod: any;",
+        "  export default mod;",
+        "}",
+      ].join("\n"),
+    )
+    .join("\n\n");
+}
+
+function setSharedTypeScriptDefaults(monaco: MonacoInstance) {
+  const sharedCompilerOptions = {
+    allowJs: true,
+    allowNonTsExtensions: true,
+    allowSyntheticDefaultImports: true,
+    checkJs: true,
+    esModuleInterop: true,
+    jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+    lib: ["dom", "dom.iterable", "es2022"],
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    noEmit: true,
+    resolveJsonModule: true,
+    target: monaco.languages.typescript.ScriptTarget.ES2022,
+  } as const;
+
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions(sharedCompilerOptions);
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: false,
+    noSuggestionDiagnostics: false,
+    noSyntaxValidation: false,
+    onlyVisible: false,
+  });
+  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true);
+
+  monaco.languages.typescript.typescriptDefaults.setCompilerOptions(sharedCompilerOptions);
+  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+    noSemanticValidation: false,
+    noSuggestionDiagnostics: false,
+    noSyntaxValidation: false,
+    onlyVisible: false,
+  });
+  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true);
+}
+
+function ensureExtraLibs(
+  monaco: MonacoInstance,
+  packages: PlaygroundMonacoWorkspacePackage[] = [],
+) {
+  const runtimeDeclarations = buildRuntimeDeclarations();
+
+  codeorbitRuntimeLibDisposable?.dispose();
+  codeorbitRuntimeLibDisposable = monaco.languages.typescript.javascriptDefaults.addExtraLib(
+    runtimeDeclarations,
+    runtimeDeclarationsPath,
+  );
+
+  webcorePackagesLibDisposable?.dispose();
+  webcorePackagesLibDisposable = monaco.languages.typescript.javascriptDefaults.addExtraLib(
+    buildWebCorePackageDeclarations(packages),
+    packageDeclarationsPath,
+  );
+}
+
+function syncWorkspaceModel(monaco: MonacoInstance, file: PlaygroundMonacoWorkspaceFile) {
+  const modelUri = monaco.Uri.parse(file.path);
+  const existingModel = monaco.editor.getModel(modelUri);
+
+  if (!existingModel) {
+    monaco.editor.createModel(file.value, file.language, modelUri);
+    return;
+  }
+
+  if (existingModel.getLanguageId() !== file.language) {
+    monaco.editor.setModelLanguage(existingModel, file.language);
+  }
+
+  if (existingModel.getValue() !== file.value) {
+    existingModel.setValue(file.value);
+  }
+}
+
+export function buildPlaygroundModelPath(...segments: string[]) {
+  const sanitizedPath = segments
+    .flatMap((segment) => segment.split("/"))
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${playgroundWorkspaceRoot}/${sanitizedPath}`;
+}
+
+export function syncPlaygroundMonacoWorkspace(
+  monaco: MonacoInstance,
+  files: PlaygroundMonacoWorkspaceFile[],
+  packages: PlaygroundMonacoWorkspacePackage[] = [],
+) {
+  const nextWorkspaceModelPaths = new Set(files.map((file) => file.path));
+
+  for (const previousPath of syncedWorkspaceModelPaths) {
+    if (nextWorkspaceModelPaths.has(previousPath)) {
+      continue;
+    }
+
+    const staleModel = monaco.editor.getModel(monaco.Uri.parse(previousPath));
+    staleModel?.dispose();
+  }
+
+  for (const file of files) {
+    syncWorkspaceModel(monaco, file);
+  }
+
+  syncedWorkspaceModelPaths = nextWorkspaceModelPaths;
+  ensureExtraLibs(monaco, packages);
+}
 
 export function configurePlaygroundMonaco(monaco: MonacoInstance) {
   // Always define the theme on mount so fast-refreshes don't drop it and fallback to white.
@@ -419,16 +611,14 @@ export function configurePlaygroundMonaco(monaco: MonacoInstance) {
 
   playgroundMonacoConfigured = true;
 
-  monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-    allowNonTsExtensions: true,
-    lib: ["dom", "es2020"],
-    target: monaco.languages.typescript.ScriptTarget.ES2020,
-  });
+  setSharedTypeScriptDefaults(monaco);
+  ensureExtraLibs(monaco);
 
   registerProvider(monaco, "javascript", javascriptCompletions, ["."]);
   registerProvider(monaco, "python", pythonCompletions, ["."]);
   registerProvider(monaco, "java", javaCompletions, ["."]);
   registerProvider(monaco, "html", htmlCompletions, ["<"]);
+  registerProvider(monaco, "css", cssCompletions, [":", "-", "."]);
   registerProvider(monaco, "sql", sqlCompletions);
   registerProvider(monaco, "cpp", cppCompletions, ["<", "."]);
   registerProvider(monaco, "go", goCompletions, ["."]);
