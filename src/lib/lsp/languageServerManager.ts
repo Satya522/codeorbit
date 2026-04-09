@@ -62,7 +62,7 @@ type LspServerOptions = {
 
 const virtualWorkspaceRootUri = "file:///codeorbit-playground";
 const writableTempRoot =
-  process.env.TMPDIR || process.env.TEMP || process.env.TMP || path.join(process.cwd(), ".tmp");
+  process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
 const resolvedWorkspaceRootPath = path.join(writableTempRoot, "codeorbit-playground-workspace");
 const resolvedWorkspaceRootUri = pathToFileURL(resolvedWorkspaceRootPath).toString();
 
