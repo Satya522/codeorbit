@@ -78,10 +78,98 @@ const writableTempRoot = process.env.TMPDIR || process.env.TEMP || process.env.T
 const resolvedWorkspaceRootPath = path.join(writableTempRoot, "codeorbit-playground-workspace");
 const resolvedWorkspaceRootUri = pathToFileURL(resolvedWorkspaceRootPath).toString();
 const compileCommandsPath = path.join(resolvedWorkspaceRootPath, "compile_commands.json");
+const cppFallbackIncludePath = path.join(resolvedWorkspaceRootPath, "codeorbit-cpp-headers");
 const nodeModulesRoot = path.join(process.cwd(), "node_modules");
+const cppFallbackHeaders: Record<string, string> = {
+  string: `#pragma once
+namespace std {
+using size_t = decltype(sizeof(0));
+
+class string {
+public:
+  string();
+  string(const char *);
+  const char *c_str() const;
+  bool empty() const;
+  char &front();
+  char &back();
+  string &append(const string &);
+  string &clear();
+  size_t find(const string &) const;
+  void push_back(char);
+  size_t size() const;
+  string substr(size_t, size_t = static_cast<size_t>(-1)) const;
+};
+} // namespace std
+`,
+  vector: `#pragma once
+namespace std {
+using size_t = decltype(sizeof(0));
+
+template <typename T> class initializer_list;
+template <typename T> class allocator;
+
+template <typename T, typename Allocator = allocator<T>>
+class vector {
+public:
+  using value_type = T;
+  using size_type = size_t;
+  using reference = T &;
+  using const_reference = const T &;
+  using pointer = T *;
+  using iterator = T *;
+  using const_iterator = const T *;
+  using reverse_iterator = T *;
+  using const_reverse_iterator = const T *;
+
+  vector();
+  void assign(initializer_list<value_type>);
+  void assign(size_type, const value_type &);
+  reference at(size_type);
+  reference back();
+  iterator begin();
+  size_type capacity() const;
+  const_iterator cbegin() const;
+  const_iterator cend() const;
+  void clear();
+  const_reverse_iterator crbegin() const;
+  const_reverse_iterator crend() const;
+  pointer data();
+  template <typename... Args> iterator emplace(const_iterator, Args &&...);
+  template <typename... Args> void emplace_back(Args &&...);
+  bool empty() const;
+  iterator end();
+  iterator erase(const_iterator);
+  iterator erase(const_iterator, const_iterator);
+  reference front();
+  Allocator get_allocator() const;
+  iterator insert(const_iterator, const value_type &);
+  size_type max_size() const;
+  void pop_back();
+  void push_back(const value_type &);
+  reverse_iterator rbegin();
+  reverse_iterator rend();
+  void reserve(size_type);
+  void resize(size_type);
+  void resize(size_type, const value_type &);
+  void shrink_to_fit();
+  size_type size() const;
+  void swap(vector &);
+};
+} // namespace std
+`,
+};
 
 function ensureResolvedWorkspaceRoot() {
   mkdirSync(resolvedWorkspaceRootPath, { recursive: true });
+}
+
+function ensureCppFallbackHeaders() {
+  mkdirSync(cppFallbackIncludePath, { recursive: true });
+
+  for (const [headerName, headerContents] of Object.entries(cppFallbackHeaders)) {
+    writeFileSync(path.join(cppFallbackIncludePath, headerName), headerContents, "utf8");
+  }
 }
 
 function mapWorkspaceUriToServerUri(uri: string) {
@@ -171,7 +259,8 @@ function resolveClangdBinary() {
 }
 
 function writeCppCompileCommands(files: PlaygroundLspWorkspaceFile[]) {
-  const compiler = normalizeCommandPath(resolveCppCompiler() ?? "clang++");
+  const compilerPath = resolveCppCompiler();
+  const compiler = normalizeCommandPath(compilerPath ?? "clang++");
   const cppFiles = files.filter((file) => file.language === "cpp");
   const commands = cppFiles
     .map((file) => {
@@ -181,8 +270,16 @@ function writeCppCompileCommands(files: PlaygroundLspWorkspaceFile[]) {
         return null;
       }
 
+      const argumentsList = [compiler, "-std=c++20", "-xc++"];
+
+      if (!compilerPath) {
+        argumentsList.push(`-I${cppFallbackIncludePath}`);
+      }
+
+      argumentsList.push(workspacePath);
+
       return {
-        arguments: [compiler, "-std=c++20", "-xc++", workspacePath],
+        arguments: argumentsList,
         directory: resolvedWorkspaceRootPath,
         file: workspacePath,
       };
@@ -278,6 +375,7 @@ class LspServerManager {
       syncWorkspaceFilesToDisk(request.files);
 
       if (this.options.serverKind === "cpp") {
+        ensureCppFallbackHeaders();
         writeCppCompileCommands(request.files);
       }
 
