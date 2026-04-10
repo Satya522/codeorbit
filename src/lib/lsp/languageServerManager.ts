@@ -1,9 +1,9 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-export type PlaygroundLspLanguage = "css" | "html" | "javascript";
+export type PlaygroundLspLanguage = "cpp" | "css" | "html" | "javascript" | "python";
 
 export type PlaygroundLspWorkspaceFile = {
   language: string;
@@ -46,6 +46,18 @@ type JsonRpcMessage = {
   result?: unknown;
 };
 
+type CompletionItemLike = {
+  kind?: number;
+  label?: string | { label?: string };
+};
+
+type CompletionResultLike =
+  | CompletionItemLike[]
+  | {
+      items?: CompletionItemLike[];
+      isIncomplete?: boolean;
+    };
+
 type ManagedDocument = {
   language: string;
   text: string;
@@ -56,15 +68,17 @@ type LspServerOptions = {
   args: string[];
   bin: string;
   configuration?: Record<string, unknown>;
+  launchWithNode?: boolean;
   rootUri: string;
   serverKind: PlaygroundLspLanguage;
 };
 
 const virtualWorkspaceRootUri = "file:///codeorbit-playground";
-const writableTempRoot =
-  process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
+const writableTempRoot = process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
 const resolvedWorkspaceRootPath = path.join(writableTempRoot, "codeorbit-playground-workspace");
 const resolvedWorkspaceRootUri = pathToFileURL(resolvedWorkspaceRootPath).toString();
+const compileCommandsPath = path.join(resolvedWorkspaceRootPath, "compile_commands.json");
+const nodeModulesRoot = path.join(process.cwd(), "node_modules");
 
 function ensureResolvedWorkspaceRoot() {
   mkdirSync(resolvedWorkspaceRootPath, { recursive: true });
@@ -78,11 +92,152 @@ function mapWorkspaceUriToServerUri(uri: string) {
   return `${resolvedWorkspaceRootUri}${uri.slice(virtualWorkspaceRootUri.length)}`;
 }
 
+function mapServerUriToWorkspacePath(uri: string) {
+  try {
+    const workspacePath = fileURLToPath(uri);
+
+    if (!workspacePath.startsWith(resolvedWorkspaceRootPath)) {
+      return null;
+    }
+
+    return workspacePath;
+  } catch {
+    return null;
+  }
+}
+
+function syncWorkspaceFilesToDisk(files: PlaygroundLspWorkspaceFile[]) {
+  for (const file of files) {
+    const workspacePath = mapServerUriToWorkspacePath(file.uri);
+
+    if (!workspacePath) {
+      continue;
+    }
+
+    mkdirSync(path.dirname(workspacePath), { recursive: true });
+    writeFileSync(workspacePath, file.text, "utf8");
+  }
+}
+
+function resolveExistingPath(absolutePath: string) {
+  return existsSync(absolutePath) ? absolutePath : null;
+}
+
+function findFirstAvailableCommand(candidates: string[]) {
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    const probe = spawnSync(candidate, ["--version"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+
+    if (!probe.error && probe.status !== null) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function resolveCppCompiler() {
+  const candidates =
+    process.platform === "win32"
+      ? ["C:\\MinGW\\bin\\g++.exe", "g++.exe", "clang++.exe"]
+      : ["g++", "clang++", "c++"];
+
+  return findFirstAvailableCommand(candidates);
+}
+
+function normalizeCommandPath(command: string) {
+  return process.platform === "win32" ? command.replace(/\\/g, "/") : command;
+}
+
+function resolveClangdBinary() {
+  const packagedBinary =
+    process.platform === "win32"
+      ? resolveExistingPath(path.join(nodeModulesRoot, "clangd-windows", "bin", "clangd.exe"))
+      : resolveExistingPath(path.join(nodeModulesRoot, "clangd-linux", "bin", "clangd"));
+
+  if (packagedBinary) {
+    return packagedBinary;
+  }
+
+  return findFirstAvailableCommand(
+    process.platform === "win32" ? ["clangd.exe", "clangd"] : ["clangd"],
+  );
+}
+
+function writeCppCompileCommands(files: PlaygroundLspWorkspaceFile[]) {
+  const compiler = normalizeCommandPath(resolveCppCompiler() ?? "clang++");
+  const cppFiles = files.filter((file) => file.language === "cpp");
+  const commands = cppFiles
+    .map((file) => {
+      const workspacePath = mapServerUriToWorkspacePath(file.uri);
+
+      if (!workspacePath) {
+        return null;
+      }
+
+      return {
+        arguments: [compiler, "-std=c++20", "-xc++", workspacePath],
+        directory: resolvedWorkspaceRootPath,
+        file: workspacePath,
+      };
+    })
+    .filter(Boolean);
+
+  writeFileSync(compileCommandsPath, JSON.stringify(commands, null, 2), "utf8");
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function getCompletionItems(result: unknown) {
+  if (Array.isArray(result)) {
+    return result as CompletionItemLike[];
+  }
+
+  if (result && typeof result === "object" && !Array.isArray(result)) {
+    const maybeResult = result as { items?: unknown };
+
+    if (Array.isArray(maybeResult.items)) {
+      return maybeResult.items as CompletionItemLike[];
+    }
+  }
+
+  return [];
+}
+
+function getCompletionLabel(item: CompletionItemLike) {
+  return typeof item.label === "string" ? item.label : item.label?.label ?? "";
+}
+
+function looksLikeWeakCppCompletion(result: unknown) {
+  const items = getCompletionItems(result).slice(0, 8);
+
+  if (items.length === 0) {
+    return true;
+  }
+
+  return !items.some((item) => item.kind === 2 || getCompletionLabel(item).includes("("));
+}
+
 function resolvePackageBin(
-  packageName: "typescript-language-server" | "vscode-langservers-extracted",
+  packageName: "pyright" | "typescript-language-server" | "vscode-langservers-extracted",
   binName: string,
 ) {
-  const packageJsonPath = path.join(process.cwd(), "node_modules", packageName, "package.json");
+  const packageJsonPath =
+    packageName === "pyright"
+      ? path.join(nodeModulesRoot, "pyright", "package.json")
+      : packageName === "typescript-language-server"
+        ? path.join(nodeModulesRoot, "typescript-language-server", "package.json")
+        : path.join(nodeModulesRoot, "vscode-langservers-extracted", "package.json");
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8")) as {
     bin?: Record<string, string> | string;
   };
@@ -119,13 +274,20 @@ class LspServerManager {
 
   async complete(request: LspCompletionRequest) {
     return this.enqueue(async () => {
+      ensureResolvedWorkspaceRoot();
+      syncWorkspaceFilesToDisk(request.files);
+
+      if (this.options.serverKind === "cpp") {
+        writeCppCompileCommands(request.files);
+      }
+
       await this.ensureInitialized();
       this.syncDocuments(request.files);
 
-      return this.sendRequest("textDocument/completion", {
+      const completionParams = {
         context: {
           triggerCharacter: request.requestContext?.triggerCharacter,
-          triggerKind: request.requestContext?.triggerCharacter ? 2 : 1,
+          triggerKind: request.requestContext?.triggerKind ?? (request.requestContext?.triggerCharacter ? 2 : 1),
         },
         position: {
           character: Math.max(0, request.position.column - 1),
@@ -134,7 +296,15 @@ class LspServerManager {
         textDocument: {
           uri: request.documentUri,
         },
-      });
+      };
+      const completionResult = await this.sendRequest("textDocument/completion", completionParams);
+
+      if (this.options.serverKind === "cpp" && looksLikeWeakCppCompletion(completionResult)) {
+        await sleep(1000);
+        return this.sendRequest("textDocument/completion", completionParams);
+      }
+
+      return completionResult;
     });
   }
 
@@ -200,9 +370,15 @@ class LspServerManager {
       return this.process;
     }
 
-    const spawned = spawn(process.execPath, [this.options.bin, ...this.options.args], {
+    const command = this.options.launchWithNode === false ? this.options.bin : process.execPath;
+    const args =
+      this.options.launchWithNode === false
+        ? this.options.args
+        : [this.options.bin, ...this.options.args];
+    const spawned = spawn(command, args, {
       env: process.env,
       stdio: "pipe",
+      windowsHide: true,
     });
 
     spawned.stdout.on("data", (chunk: Buffer) => {
@@ -461,6 +637,8 @@ class LspServerManager {
 let javascriptServerManager: LspServerManager | null = null;
 let htmlServerManager: LspServerManager | null = null;
 let cssServerManager: LspServerManager | null = null;
+let pythonServerManager: LspServerManager | null = null;
+let cppServerManager: LspServerManager | null = null;
 
 function getJavascriptServerManager() {
   if (!javascriptServerManager) {
@@ -537,6 +715,65 @@ function getCssServerManager() {
   return cssServerManager;
 }
 
+function getPythonServerManager() {
+  if (!pythonServerManager) {
+    pythonServerManager = new LspServerManager({
+      args: ["--stdio"],
+      bin: resolvePackageBin("pyright", "pyright-langserver"),
+      configuration: {
+        python: {
+          analysis: {
+            autoImportCompletions: true,
+            diagnosticMode: "workspace",
+            indexing: true,
+            typeCheckingMode: "basic",
+            useLibraryCodeForTypes: true,
+          },
+        },
+      },
+      rootUri: resolvedWorkspaceRootUri,
+      serverKind: "python",
+    });
+  }
+
+  return pythonServerManager;
+}
+
+function getCppServerManager() {
+  if (cppServerManager) {
+    return cppServerManager;
+  }
+
+  const clangdBinary = resolveClangdBinary();
+
+  if (!clangdBinary) {
+    return null;
+  }
+
+  const compiler = resolveCppCompiler();
+  const args = [
+    `--compile-commands-dir=${resolvedWorkspaceRootPath}`,
+    "--header-insertion=never",
+    "--completion-style=detailed",
+    "--limit-results=80",
+    "--log=error",
+  ];
+
+  if (compiler) {
+    args.splice(1, 0, `--query-driver=${normalizeCommandPath(compiler)}`);
+  }
+
+  cppServerManager = new LspServerManager({
+    args,
+    bin: clangdBinary,
+    launchWithNode: false,
+    rootUri: resolvedWorkspaceRootUri,
+    serverKind: "cpp",
+  });
+
+  return cppServerManager;
+}
+
 function filterFilesForLanguage(language: PlaygroundLspLanguage, files: PlaygroundLspWorkspaceFile[]) {
   if (language === "javascript") {
     return files.filter((file) =>
@@ -550,7 +787,15 @@ function filterFilesForLanguage(language: PlaygroundLspLanguage, files: Playgrou
     return files.filter((file) => file.language === "html");
   }
 
-  return files.filter((file) => file.language === "css");
+  if (language === "css") {
+    return files.filter((file) => file.language === "css");
+  }
+
+  if (language === "python") {
+    return files.filter((file) => file.language === "python");
+  }
+
+  return files.filter((file) => file.language === "cpp");
 }
 
 export async function requestPlaygroundLspCompletion(request: LspCompletionRequest) {
@@ -571,5 +816,14 @@ export async function requestPlaygroundLspCompletion(request: LspCompletionReque
     return getHtmlServerManager().complete(normalizedRequest);
   }
 
-  return getCssServerManager().complete(normalizedRequest);
+  if (normalizedRequest.language === "css") {
+    return getCssServerManager().complete(normalizedRequest);
+  }
+
+  if (normalizedRequest.language === "python") {
+    return getPythonServerManager().complete(normalizedRequest);
+  }
+
+  const manager = getCppServerManager();
+  return manager ? manager.complete(normalizedRequest) : [];
 }

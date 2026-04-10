@@ -22,6 +22,8 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/playground/lsp": [
+      "./node_modules/clangd-linux/**/*",
+      "./node_modules/pyright/**/*",
       "./node_modules/typescript/**/*",
       "./node_modules/typescript-language-server/**/*",
       "./node_modules/vscode-langservers-extracted/**/*",
@@ -29,6 +31,7 @@ const nextConfig: NextConfig = {
   },
   poweredByHeader: false,
   serverExternalPackages: [
+    "pyright",
     "typescript",
     "typescript-language-server",
     "vscode-langservers-extracted",

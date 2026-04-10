@@ -594,7 +594,7 @@ function mapLspCompletionItemToMonaco(
 }
 
 async function requestLspCompletions(
-  language: "css" | "html" | "javascript",
+  language: "cpp" | "css" | "html" | "javascript" | "python",
   body: {
     documentUri: string;
     files: PlaygroundMonacoWorkspaceFile[];
@@ -631,7 +631,7 @@ async function requestLspCompletions(
 
 function registerLspCompletionProvider(
   monaco: MonacoInstance,
-  language: "css" | "html" | "javascript",
+  language: "cpp" | "css" | "html" | "javascript" | "python",
   triggerCharacters?: string[],
 ) {
   monaco.languages.registerCompletionItemProvider(language, {
@@ -934,4 +934,6 @@ export function configurePlaygroundMonaco(monaco: MonacoInstance) {
   registerLspCompletionProvider(monaco, "javascript", [".", "\"", "'", "/", "@"]);
   registerLspCompletionProvider(monaco, "html", ["<", " ", "\"", "=", "/"]);
   registerLspCompletionProvider(monaco, "css", [":", "-", ".", "@", "#"]);
+  registerLspCompletionProvider(monaco, "python", ["."]);
+  registerLspCompletionProvider(monaco, "cpp", [".", ">", ":"]);
 }
