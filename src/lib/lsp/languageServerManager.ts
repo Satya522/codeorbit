@@ -254,9 +254,36 @@ function normalizeCommandPath(command: string) {
   return process.platform === "win32" ? command.replace(/\\/g, "/") : command;
 }
 
+function findNestedExecutable(searchRoot: string, executableName: string): string | null {
+  if (!existsSync(searchRoot)) {
+    return null;
+  }
+
+  const directMatch = resolveExistingPath(path.join(searchRoot, executableName));
+
+  if (directMatch) {
+    return directMatch;
+  }
+
+  for (const entry of readdirSync(searchRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const nestedMatch = findNestedExecutable(path.join(searchRoot, entry.name), executableName);
+
+    if (nestedMatch) {
+      return nestedMatch;
+    }
+  }
+
+  return null;
+}
+
 function resolveVendoredJavaExecutable() {
-  return resolveExistingPath(
-    path.join(vendoredJavaRuntimeRoot, "jre", "bin", process.platform === "win32" ? "java.exe" : "java"),
+  return findNestedExecutable(
+    path.join(vendoredJavaRuntimeRoot, "jre"),
+    path.join("bin", process.platform === "win32" ? "java.exe" : "java"),
   );
 }
 

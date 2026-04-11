@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 
@@ -10,7 +10,36 @@ const supportedPlatforms = new Set(["linux", "win32"]);
 const javaExecutableName = process.platform === "win32" ? "java.exe" : "java";
 const runtimeRoot = path.join(process.cwd(), "vendor", "java", `${process.platform}-${process.arch}`);
 const runtimeManifestPath = path.join(runtimeRoot, "package.json");
-const vendoredJavaPath = path.join(runtimeRoot, "jre", "bin", javaExecutableName);
+
+function findVendoredJavaExecutable(searchRoot) {
+  if (!existsSync(searchRoot)) {
+    return null;
+  }
+
+  const directMatch = path.join(searchRoot, "bin", javaExecutableName);
+
+  if (existsSync(directMatch)) {
+    return directMatch;
+  }
+
+  for (const entry of readdirSync(searchRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const nestedMatch = findVendoredJavaExecutable(path.join(searchRoot, entry.name));
+
+    if (nestedMatch) {
+      return nestedMatch;
+    }
+  }
+
+  return null;
+}
+
+function resolveVendoredJavaPath() {
+  return findVendoredJavaExecutable(path.join(runtimeRoot, "jre"));
+}
 
 function hasSystemJava() {
   const probe = spawnSync("java", ["-version"], {
@@ -26,7 +55,7 @@ async function main() {
     return;
   }
 
-  if (existsSync(vendoredJavaPath)) {
+  if (resolveVendoredJavaPath()) {
     return;
   }
 
@@ -58,8 +87,10 @@ async function main() {
     vendor: "eclipse",
   });
 
-  if (!existsSync(vendoredJavaPath)) {
-    throw new Error(`Portable Java runtime installation completed without ${vendoredJavaPath}.`);
+  const installedJavaPath = resolveVendoredJavaPath();
+
+  if (!installedJavaPath) {
+    throw new Error(`Portable Java runtime installation completed without a usable ${javaExecutableName} binary.`);
   }
 }
 
