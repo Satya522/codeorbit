@@ -88,6 +88,11 @@ type HtmlWorkspaceState = {
   packages: HtmlWorkspacePackage[];
 };
 
+type CachedRemoteExecutionResult = {
+  error: string;
+  output: string;
+};
+
 type MonacoEditorInstance = Parameters<NonNullable<EditorProps["onMount"]>>[0];
 
 const remoteExecutionLanguages: LanguageId[] = ["java", "python", "cpp", "javascript", "go"];
@@ -241,6 +246,30 @@ const playgroundLanguageStorageKey = "codeorbit:playground:language";
 const playgroundCodesStorageKey = "codeorbit:playground:codes";
 const htmlWorkspaceStorageKey = "codeorbit:playground:html-workspace";
 const playgroundEditorFontStorageKey = "codeorbit:playground:editor-font";
+const MAX_LOCAL_EXECUTION_CACHE_ENTRIES = 20;
+
+function buildRemoteExecutionCacheKey(language: LanguageId, code: string, stdin: string) {
+  return `${language}\u0000${stdin}\u0000${code}`;
+}
+
+function rememberCachedRemoteExecution(
+  cache: Map<string, CachedRemoteExecutionResult>,
+  cacheKey: string,
+  result: CachedRemoteExecutionResult,
+) {
+  cache.delete(cacheKey);
+  cache.set(cacheKey, result);
+
+  while (cache.size > MAX_LOCAL_EXECUTION_CACHE_ENTRIES) {
+    const oldestCacheKey = cache.keys().next().value;
+
+    if (!oldestCacheKey) {
+      break;
+    }
+
+    cache.delete(oldestCacheKey);
+  }
+}
 const playgroundEditorFontSize = 14.5;
 const sandboxFontOptions: SandboxFontOption[] = [
   {
@@ -946,6 +975,8 @@ export function PlaygroundShell() {
   const webCoreActionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const monacoRef = useRef<MonacoInstance | null>(null);
   const editorRef = useRef<MonacoEditorInstance | null>(null);
+  const localExecutionCacheRef = useRef<Map<string, CachedRemoteExecutionResult>>(new Map());
+  const prewarmedExecutionLanguagesRef = useRef<Set<LanguageId>>(new Set());
 
   const lang = languageOptions.find((option) => option.id === activeLang) ?? languageOptions[0];
   const selectedEditorFont =
@@ -1072,6 +1103,42 @@ export function PlaygroundShell() {
     setHasRun(false);
     setActiveTab("output");
   }, [clearRunState]);
+
+  const warmExecutionLanguage = useCallback(async (languageId: LanguageId) => {
+    if (languageId !== "java" || !remoteExecutionLanguages.includes(languageId)) {
+      return;
+    }
+
+    if (prewarmedExecutionLanguagesRef.current.has(languageId)) {
+      return;
+    }
+
+    prewarmedExecutionLanguagesRef.current.add(languageId);
+
+    try {
+      await fetch("/api/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language: languageOptions.find((option) => option.id === languageId)?.engineLanguage ?? languageId,
+          code: starterTemplates[languageId],
+          stdin: "",
+          warmup: true,
+        }),
+      });
+    } catch (error) {
+      console.warn(`Unable to prewarm the ${languageId} runner.`, error);
+      prewarmedExecutionLanguagesRef.current.delete(languageId);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasRestoredPlaygroundState || activeLang !== "java") {
+      return;
+    }
+
+    void warmExecutionLanguage("java");
+  }, [activeLang, hasRestoredPlaygroundState, warmExecutionLanguage]);
 
   const togglePlaygroundFullscreen = useCallback(async () => {
     const rootElement = playgroundRootRef.current;
@@ -1636,14 +1703,34 @@ export function PlaygroundShell() {
   }, [isWebCoreActionsOpen, updateWebCoreActionsPosition]);
 
   const handleRun = async () => {
-    setIsRunning(true);
+    const src = activeLang === "html" ? buildHtmlPreviewDocument(htmlWorkspace) : codes[activeLang];
+    const remoteExecutionCacheKey = remoteExecutionLanguages.includes(activeLang)
+      ? buildRemoteExecutionCacheKey(activeLang, src, inputStr)
+      : null;
+    const cachedRemoteExecution = remoteExecutionCacheKey
+      ? localExecutionCacheRef.current.get(remoteExecutionCacheKey)
+      : null;
+
     setHasRun(false);
     setActiveTab("output");
     clearRunState();
+
+    if (cachedRemoteExecution) {
+      setOutputStr(cachedRemoteExecution.output);
+      setErrorStr(cachedRemoteExecution.error);
+
+      if (cachedRemoteExecution.error && cachedRemoteExecution.output === "Execution complete with no output.") {
+        setActiveTab("errors");
+      }
+
+      setHasRun(true);
+      setExecTimeMs(0);
+      return;
+    }
+
+    setIsRunning(true);
     setOutputStr("Running...");
     runStartRef.current = performance.now();
-
-    const src = activeLang === "html" ? buildHtmlPreviewDocument(htmlWorkspace) : codes[activeLang];
 
     try {
       if (remoteExecutionLanguages.includes(activeLang)) {
@@ -1665,13 +1752,23 @@ export function PlaygroundShell() {
           setActiveTab("errors");
         } else {
           const result = await res.json();
-          setOutputStr(result.output || "Execution complete with no output.");
+          const nextOutput = result.output || "Execution complete with no output.";
+          const nextError = result.error ?? "";
 
-          if (result.error) {
-            setErrorStr(result.error);
+          setOutputStr(nextOutput);
+
+          if (nextError) {
+            setErrorStr(nextError);
             if (!result.output) {
               setActiveTab("errors");
             }
+          }
+
+          if (remoteExecutionCacheKey) {
+            rememberCachedRemoteExecution(localExecutionCacheRef.current, remoteExecutionCacheKey, {
+              error: nextError,
+              output: nextOutput,
+            });
           }
         }
       } else if (activeLang === "html") {
