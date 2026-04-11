@@ -247,6 +247,7 @@ const playgroundCodesStorageKey = "codeorbit:playground:codes";
 const htmlWorkspaceStorageKey = "codeorbit:playground:html-workspace";
 const playgroundEditorFontStorageKey = "codeorbit:playground:editor-font";
 const MAX_LOCAL_EXECUTION_CACHE_ENTRIES = 20;
+const prewarmableExecutionLanguages: LanguageId[] = ["java", "python", "cpp"];
 
 function buildRemoteExecutionCacheKey(language: LanguageId, code: string, stdin: string) {
   return `${language}\u0000${stdin}\u0000${code}`;
@@ -1105,7 +1106,7 @@ export function PlaygroundShell() {
   }, [clearRunState]);
 
   const warmExecutionLanguage = useCallback(async (languageId: LanguageId) => {
-    if (languageId !== "java" || !remoteExecutionLanguages.includes(languageId)) {
+    if (!prewarmableExecutionLanguages.includes(languageId) || !remoteExecutionLanguages.includes(languageId)) {
       return;
     }
 
@@ -1133,11 +1134,11 @@ export function PlaygroundShell() {
   }, []);
 
   useEffect(() => {
-    if (!hasRestoredPlaygroundState || activeLang !== "java") {
+    if (!hasRestoredPlaygroundState || !prewarmableExecutionLanguages.includes(activeLang)) {
       return;
     }
 
-    void warmExecutionLanguage("java");
+    void warmExecutionLanguage(activeLang);
   }, [activeLang, hasRestoredPlaygroundState, warmExecutionLanguage]);
 
   const togglePlaygroundFullscreen = useCallback(async () => {
