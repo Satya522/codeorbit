@@ -31,7 +31,7 @@
   },
   "scripts": {
     "dev": "next dev --webpack",
-    "postinstall": "node scripts/ensure-java-ls-runtime.mjs && prisma generate",
+    "postinstall": "prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

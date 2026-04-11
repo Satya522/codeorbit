@@ -30,11 +30,11 @@ const nextConfig: NextConfig = {
       "./node_modules/typescript/**/*",
       "./node_modules/typescript-language-server/**/*",
       "./node_modules/vscode-langservers-extracted/**/*",
-      "./vendor/java/**/*",
     ],
   },
   poweredByHeader: false,
   serverExternalPackages: [
+    "njre",
     "pyright",
     "typescript",
     "typescript-language-server",

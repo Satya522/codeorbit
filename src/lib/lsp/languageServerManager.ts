@@ -1,5 +1,6 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -73,6 +74,17 @@ type LspServerOptions = {
   serverKind: PlaygroundLspLanguage;
 };
 
+type NjreInstall = (
+  version?: number,
+  options?: {
+    arch?: string;
+    installPath?: string;
+    os?: string;
+    type?: string;
+    vendor?: string;
+  },
+) => Promise<string>;
+
 const virtualWorkspaceRootUri = "file:///codeorbit-playground";
 const writableTempRoot = process.env.TMPDIR || process.env.TEMP || process.env.TMP || "/tmp";
 const resolvedWorkspaceRootPath = path.join(writableTempRoot, "codeorbit-playground-workspace");
@@ -81,10 +93,16 @@ const compileCommandsPath = path.join(resolvedWorkspaceRootPath, "compile_comman
 const cppFallbackIncludePath = path.join(resolvedWorkspaceRootPath, "codeorbit-cpp-headers");
 const javaWorkspaceDataPath = path.join(resolvedWorkspaceRootPath, "codeorbit-java-workspace");
 const nodeModulesRoot = path.join(process.cwd(), "node_modules");
+const require = createRequire(import.meta.url);
 const vendoredJavaRuntimeRoot = path.join(
   process.cwd(),
   "vendor",
   "java",
+  `${process.platform}-${process.arch}`,
+);
+const runtimeJavaRuntimeRoot = path.join(
+  writableTempRoot,
+  "codeorbit-playground-java-runtime",
   `${process.platform}-${process.arch}`,
 );
 const cppFallbackHeaders: Record<string, string> = {
@@ -280,21 +298,92 @@ function findNestedExecutable(searchRoot: string, executableName: string): strin
   return null;
 }
 
-function resolveVendoredJavaExecutable() {
+function resolveJavaRuntimeExecutable(runtimeRoot: string) {
   return findNestedExecutable(
-    path.join(vendoredJavaRuntimeRoot, "jre"),
+    path.join(runtimeRoot, "jre"),
     path.join("bin", process.platform === "win32" ? "java.exe" : "java"),
   );
 }
 
-function resolveJavaExecutable() {
-  const vendoredJava = resolveVendoredJavaExecutable();
+function resolveVendoredJavaExecutable() {
+  return resolveJavaRuntimeExecutable(vendoredJavaRuntimeRoot);
+}
 
-  if (vendoredJava) {
-    return vendoredJava;
+function resolveRuntimeJavaExecutable() {
+  return resolveJavaRuntimeExecutable(runtimeJavaRuntimeRoot);
+}
+
+function resolveAvailableJavaExecutable() {
+  for (const candidate of [
+    resolveVendoredJavaExecutable(),
+    resolveRuntimeJavaExecutable(),
+    findFirstAvailableCommand(process.platform === "win32" ? ["java.exe", "java"] : ["java"]),
+  ]) {
+    if (candidate) {
+      return candidate;
+    }
   }
 
-  return findFirstAvailableCommand(process.platform === "win32" ? ["java.exe", "java"] : ["java"]);
+  return null;
+}
+
+let javaRuntimeInstallPromise: Promise<string | null> | null = null;
+
+async function ensureJavaExecutable() {
+  const existingJava = resolveAvailableJavaExecutable();
+
+  if (existingJava) {
+    return existingJava;
+  }
+
+  if (javaRuntimeInstallPromise) {
+    return javaRuntimeInstallPromise;
+  }
+
+  javaRuntimeInstallPromise = (async () => {
+    const njreModule = require("njre") as { install?: NjreInstall };
+
+    if (typeof njreModule.install !== "function") {
+      throw new Error("CodeOrbit could not load njre to install a portable Java runtime.");
+    }
+
+    mkdirSync(runtimeJavaRuntimeRoot, { recursive: true });
+
+    const runtimeManifestPath = path.join(runtimeJavaRuntimeRoot, "package.json");
+    writeFileSync(
+      runtimeManifestPath,
+      JSON.stringify(
+        {
+          description: "Portable Java runtime for CodeOrbit playground LSP.",
+          name: "codeorbit-playground-java-runtime",
+          private: true,
+          version: "1.0.0",
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    await njreModule.install(21, {
+      installPath: runtimeManifestPath,
+      type: "jre",
+      vendor: "eclipse",
+    });
+
+    const installedJava = resolveRuntimeJavaExecutable();
+
+    if (!installedJava) {
+      throw new Error("Portable Java runtime installation completed without a usable Java binary.");
+    }
+
+    return installedJava;
+  })().catch((error) => {
+    javaRuntimeInstallPromise = null;
+    throw error;
+  });
+
+  return javaRuntimeInstallPromise;
 }
 
 function resolveJavaLanguageServerPackageRoot() {
@@ -844,6 +933,7 @@ let cssServerManager: LspServerManager | null = null;
 let pythonServerManager: LspServerManager | null = null;
 let cppServerManager: LspServerManager | null = null;
 let javaServerManager: LspServerManager | null = null;
+let javaServerManagerPromise: Promise<LspServerManager | null> | null = null;
 
 function getJavascriptServerManager() {
   if (!javascriptServerManager) {
@@ -979,70 +1069,85 @@ function getCppServerManager() {
   return cppServerManager;
 }
 
-function getJavaServerManager() {
+async function getJavaServerManager() {
   if (javaServerManager) {
     return javaServerManager;
   }
 
-  const javaBinary = resolveJavaExecutable();
-  const configDirectory = resolveJavaLanguageServerConfigDir();
-  const launcherJar = resolveJavaLanguageServerLauncherJar();
+  if (!javaServerManagerPromise) {
+    javaServerManagerPromise = (async () => {
+      const javaBinary = await ensureJavaExecutable();
+      const configDirectory = resolveJavaLanguageServerConfigDir();
+      const launcherJar = resolveJavaLanguageServerLauncherJar();
 
-  if (!javaBinary || !configDirectory || !launcherJar) {
-    return null;
+      if (!javaBinary || !configDirectory || !launcherJar) {
+        return null;
+      }
+
+      javaServerManager = new LspServerManager({
+        args: [
+          "-Xmx768m",
+          "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+          "-Dosgi.bundles.defaultStartLevel=4",
+          "-Dosgi.checkConfiguration=true",
+          "-Declipse.product=org.eclipse.jdt.ls.core.product",
+          "-Dlog.level=ERROR",
+          "--add-modules=ALL-SYSTEM",
+          "--add-opens",
+          "java.base/java.util=ALL-UNNAMED",
+          "--add-opens",
+          "java.base/java.lang=ALL-UNNAMED",
+          "-jar",
+          launcherJar,
+          "-configuration",
+          configDirectory,
+          "-data",
+          javaWorkspaceDataPath,
+          "--stdio",
+        ],
+        bin: javaBinary,
+        configuration: {
+          java: {
+            autobuild: {
+              enabled: false,
+            },
+            completion: {
+              guessMethodArguments: true,
+              importOrder: ["java", "javax", "org", "com"],
+            },
+            configuration: {
+              updateBuildConfiguration: "disabled",
+            },
+            import: {
+              exclusions: ["**/node_modules/**", "**/.git/**"],
+              gradle: {
+                enabled: false,
+              },
+              maven: {
+                enabled: false,
+              },
+            },
+          },
+        },
+        launchWithNode: false,
+        rootUri: resolvedWorkspaceRootUri,
+        serverKind: "java",
+      });
+
+      return javaServerManager;
+    })().catch((error) => {
+      javaServerManagerPromise = null;
+      throw error;
+    });
   }
 
-  javaServerManager = new LspServerManager({
-    args: [
-      "-Xmx768m",
-      "-Declipse.application=org.eclipse.jdt.ls.core.id1",
-      "-Dosgi.bundles.defaultStartLevel=4",
-      "-Dosgi.checkConfiguration=true",
-      "-Declipse.product=org.eclipse.jdt.ls.core.product",
-      "-Dlog.level=ERROR",
-      "--add-modules=ALL-SYSTEM",
-      "--add-opens",
-      "java.base/java.util=ALL-UNNAMED",
-      "--add-opens",
-      "java.base/java.lang=ALL-UNNAMED",
-      "-jar",
-      launcherJar,
-      "-configuration",
-      configDirectory,
-      "-data",
-      javaWorkspaceDataPath,
-      "--stdio",
-    ],
-    bin: javaBinary,
-    configuration: {
-      java: {
-        autobuild: {
-          enabled: false,
-        },
-        completion: {
-          guessMethodArguments: true,
-          importOrder: ["java", "javax", "org", "com"],
-        },
-        configuration: {
-          updateBuildConfiguration: "disabled",
-        },
-        import: {
-          exclusions: ["**/node_modules/**", "**/.git/**"],
-          gradle: {
-            enabled: false,
-          },
-          maven: {
-            enabled: false,
-          },
-        },
-      },
-    },
-    launchWithNode: false,
-    rootUri: resolvedWorkspaceRootUri,
-    serverKind: "java",
-  });
+  const manager = await javaServerManagerPromise;
 
-  return javaServerManager;
+  if (!manager) {
+    javaServerManagerPromise = null;
+  }
+
+  return manager;
 }
 
 function filterFilesForLanguage(language: PlaygroundLspLanguage, files: PlaygroundLspWorkspaceFile[]) {
@@ -1100,7 +1205,7 @@ export async function requestPlaygroundLspCompletion(request: LspCompletionReque
   }
 
   if (normalizedRequest.language === "java") {
-    const manager = getJavaServerManager();
+    const manager = await getJavaServerManager();
     return manager ? manager.complete(normalizedRequest) : [];
   }
 
