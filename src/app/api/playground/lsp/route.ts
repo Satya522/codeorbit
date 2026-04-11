@@ -16,7 +16,7 @@ const lspWorkspaceFileSchema = z.object({
 const completionRequestSchema = z.object({
   documentUri: z.string().trim().startsWith("file://").max(500),
   files: z.array(lspWorkspaceFileSchema).min(1).max(40),
-  language: z.enum(["css", "cpp", "html", "javascript", "python"]),
+  language: z.enum(["css", "cpp", "html", "java", "javascript", "python"]),
   position: z.object({
     column: z.number().int().min(1).max(10_000),
     line: z.number().int().min(1).max(10_000),

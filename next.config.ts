@@ -22,11 +22,15 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/playground/lsp": [
+      "./node_modules/@vscjava/java-language-server/**/*",
+      "./node_modules/@vscjava/java-ls-config-linux/**/*",
+      "./node_modules/@vscjava/java-ls-config-win32/**/*",
       "./node_modules/clangd-linux/**/*",
       "./node_modules/pyright/**/*",
       "./node_modules/typescript/**/*",
       "./node_modules/typescript-language-server/**/*",
       "./node_modules/vscode-langservers-extracted/**/*",
+      "./vendor/java/**/*",
     ],
   },
   poweredByHeader: false,

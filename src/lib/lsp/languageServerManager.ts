@@ -1,9 +1,9 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export type PlaygroundLspLanguage = "cpp" | "css" | "html" | "javascript" | "python";
+export type PlaygroundLspLanguage = "cpp" | "css" | "html" | "java" | "javascript" | "python";
 
 export type PlaygroundLspWorkspaceFile = {
   language: string;
@@ -79,7 +79,14 @@ const resolvedWorkspaceRootPath = path.join(writableTempRoot, "codeorbit-playgro
 const resolvedWorkspaceRootUri = pathToFileURL(resolvedWorkspaceRootPath).toString();
 const compileCommandsPath = path.join(resolvedWorkspaceRootPath, "compile_commands.json");
 const cppFallbackIncludePath = path.join(resolvedWorkspaceRootPath, "codeorbit-cpp-headers");
+const javaWorkspaceDataPath = path.join(resolvedWorkspaceRootPath, "codeorbit-java-workspace");
 const nodeModulesRoot = path.join(process.cwd(), "node_modules");
+const vendoredJavaRuntimeRoot = path.join(
+  process.cwd(),
+  "vendor",
+  "java",
+  `${process.platform}-${process.arch}`,
+);
 const cppFallbackHeaders: Record<string, string> = {
   string: `#pragma once
 namespace std {
@@ -172,6 +179,10 @@ function ensureCppFallbackHeaders() {
   }
 }
 
+function ensureJavaWorkspaceRoot() {
+  mkdirSync(javaWorkspaceDataPath, { recursive: true });
+}
+
 function mapWorkspaceUriToServerUri(uri: string) {
   if (!uri.startsWith(virtualWorkspaceRootUri)) {
     return uri;
@@ -241,6 +252,51 @@ function resolveCppCompiler() {
 
 function normalizeCommandPath(command: string) {
   return process.platform === "win32" ? command.replace(/\\/g, "/") : command;
+}
+
+function resolveVendoredJavaExecutable() {
+  return resolveExistingPath(
+    path.join(vendoredJavaRuntimeRoot, "jre", "bin", process.platform === "win32" ? "java.exe" : "java"),
+  );
+}
+
+function resolveJavaExecutable() {
+  const vendoredJava = resolveVendoredJavaExecutable();
+
+  if (vendoredJava) {
+    return vendoredJava;
+  }
+
+  return findFirstAvailableCommand(process.platform === "win32" ? ["java.exe", "java"] : ["java"]);
+}
+
+function resolveJavaLanguageServerPackageRoot() {
+  return path.join(nodeModulesRoot, "@vscjava", "java-language-server");
+}
+
+function resolveJavaLanguageServerConfigDir() {
+  const configPackageRoot =
+    process.platform === "win32"
+      ? path.join(nodeModulesRoot, "@vscjava", "java-ls-config-win32", "config_win")
+      : process.platform === "linux"
+        ? path.join(nodeModulesRoot, "@vscjava", "java-ls-config-linux", "config_linux")
+        : path.join(nodeModulesRoot, "@vscjava", "java-ls-config-darwin", "config_mac");
+
+  return resolveExistingPath(configPackageRoot);
+}
+
+function resolveJavaLanguageServerLauncherJar() {
+  const pluginsDirectory = path.join(resolveJavaLanguageServerPackageRoot(), "server", "plugins");
+
+  if (!existsSync(pluginsDirectory)) {
+    return null;
+  }
+
+  const launcherName = readdirSync(pluginsDirectory).find(
+    (entry) => entry.startsWith("org.eclipse.equinox.launcher_") && entry.endsWith(".jar"),
+  );
+
+  return launcherName ? path.join(pluginsDirectory, launcherName) : null;
 }
 
 function resolveClangdBinary() {
@@ -325,6 +381,14 @@ function looksLikeWeakCppCompletion(result: unknown) {
   return !items.some((item) => item.kind === 2 || getCompletionLabel(item).includes("("));
 }
 
+function shouldRetryJavaCompletion(result: unknown, request: LspCompletionRequest) {
+  if (request.requestContext?.triggerCharacter !== ".") {
+    return false;
+  }
+
+  return getCompletionItems(result).length === 0;
+}
+
 function resolvePackageBin(
   packageName: "pyright" | "typescript-language-server" | "vscode-langservers-extracted",
   binName: string,
@@ -379,6 +443,10 @@ class LspServerManager {
         writeCppCompileCommands(request.files);
       }
 
+      if (this.options.serverKind === "java") {
+        ensureJavaWorkspaceRoot();
+      }
+
       await this.ensureInitialized();
       this.syncDocuments(request.files);
 
@@ -395,11 +463,22 @@ class LspServerManager {
           uri: request.documentUri,
         },
       };
-      const completionResult = await this.sendRequest("textDocument/completion", completionParams);
+      let completionResult = await this.sendRequest("textDocument/completion", completionParams);
 
       if (this.options.serverKind === "cpp" && looksLikeWeakCppCompletion(completionResult)) {
         await sleep(1000);
         return this.sendRequest("textDocument/completion", completionParams);
+      }
+
+      if (this.options.serverKind === "java" && shouldRetryJavaCompletion(completionResult, request)) {
+        for (const delayMs of [1200, 1800, 2400]) {
+          await sleep(delayMs);
+          completionResult = await this.sendRequest("textDocument/completion", completionParams);
+
+          if (!shouldRetryJavaCompletion(completionResult, request)) {
+            break;
+          }
+        }
       }
 
       return completionResult;
@@ -737,6 +816,7 @@ let htmlServerManager: LspServerManager | null = null;
 let cssServerManager: LspServerManager | null = null;
 let pythonServerManager: LspServerManager | null = null;
 let cppServerManager: LspServerManager | null = null;
+let javaServerManager: LspServerManager | null = null;
 
 function getJavascriptServerManager() {
   if (!javascriptServerManager) {
@@ -872,6 +952,72 @@ function getCppServerManager() {
   return cppServerManager;
 }
 
+function getJavaServerManager() {
+  if (javaServerManager) {
+    return javaServerManager;
+  }
+
+  const javaBinary = resolveJavaExecutable();
+  const configDirectory = resolveJavaLanguageServerConfigDir();
+  const launcherJar = resolveJavaLanguageServerLauncherJar();
+
+  if (!javaBinary || !configDirectory || !launcherJar) {
+    return null;
+  }
+
+  javaServerManager = new LspServerManager({
+    args: [
+      "-Xmx768m",
+      "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+      "-Dosgi.bundles.defaultStartLevel=4",
+      "-Dosgi.checkConfiguration=true",
+      "-Declipse.product=org.eclipse.jdt.ls.core.product",
+      "-Dlog.level=ERROR",
+      "--add-modules=ALL-SYSTEM",
+      "--add-opens",
+      "java.base/java.util=ALL-UNNAMED",
+      "--add-opens",
+      "java.base/java.lang=ALL-UNNAMED",
+      "-jar",
+      launcherJar,
+      "-configuration",
+      configDirectory,
+      "-data",
+      javaWorkspaceDataPath,
+      "--stdio",
+    ],
+    bin: javaBinary,
+    configuration: {
+      java: {
+        autobuild: {
+          enabled: false,
+        },
+        completion: {
+          guessMethodArguments: true,
+          importOrder: ["java", "javax", "org", "com"],
+        },
+        configuration: {
+          updateBuildConfiguration: "disabled",
+        },
+        import: {
+          exclusions: ["**/node_modules/**", "**/.git/**"],
+          gradle: {
+            enabled: false,
+          },
+          maven: {
+            enabled: false,
+          },
+        },
+      },
+    },
+    launchWithNode: false,
+    rootUri: resolvedWorkspaceRootUri,
+    serverKind: "java",
+  });
+
+  return javaServerManager;
+}
+
 function filterFilesForLanguage(language: PlaygroundLspLanguage, files: PlaygroundLspWorkspaceFile[]) {
   if (language === "javascript") {
     return files.filter((file) =>
@@ -891,6 +1037,10 @@ function filterFilesForLanguage(language: PlaygroundLspLanguage, files: Playgrou
 
   if (language === "python") {
     return files.filter((file) => file.language === "python");
+  }
+
+  if (language === "java") {
+    return files.filter((file) => file.language === "java");
   }
 
   return files.filter((file) => file.language === "cpp");
@@ -920,6 +1070,11 @@ export async function requestPlaygroundLspCompletion(request: LspCompletionReque
 
   if (normalizedRequest.language === "python") {
     return getPythonServerManager().complete(normalizedRequest);
+  }
+
+  if (normalizedRequest.language === "java") {
+    const manager = getJavaServerManager();
+    return manager ? manager.complete(normalizedRequest) : [];
   }
 
   const manager = getCppServerManager();
