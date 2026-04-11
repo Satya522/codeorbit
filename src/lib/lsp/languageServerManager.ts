@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -103,6 +103,11 @@ const vendoredJavaRuntimeRoot = path.join(
 const runtimeJavaRuntimeRoot = path.join(
   writableTempRoot,
   "codeorbit-playground-java-runtime",
+  `${process.platform}-${process.arch}`,
+);
+const writableJavaConfigRoot = path.join(
+  resolvedWorkspaceRootPath,
+  "codeorbit-java-config",
   `${process.platform}-${process.arch}`,
 );
 const cppFallbackHeaders: Record<string, string> = {
@@ -390,7 +395,7 @@ function resolveJavaLanguageServerPackageRoot() {
   return path.join(nodeModulesRoot, "@vscjava", "java-language-server");
 }
 
-function resolveJavaLanguageServerConfigDir() {
+function resolveReadonlyJavaLanguageServerConfigDir() {
   const configPackageRoot =
     process.platform === "win32"
       ? path.join(nodeModulesRoot, "@vscjava", "java-ls-config-win32", "config_win")
@@ -399,6 +404,39 @@ function resolveJavaLanguageServerConfigDir() {
         : path.join(nodeModulesRoot, "@vscjava", "java-ls-config-darwin", "config_mac");
 
   return resolveExistingPath(configPackageRoot);
+}
+
+let javaConfigDirectoryPromise: Promise<string | null> | null = null;
+
+async function ensureJavaLanguageServerConfigDir() {
+  const readonlyConfigDirectory = resolveReadonlyJavaLanguageServerConfigDir();
+
+  if (!readonlyConfigDirectory) {
+    return null;
+  }
+
+  if (existsSync(path.join(writableJavaConfigRoot, "config.ini"))) {
+    return writableJavaConfigRoot;
+  }
+
+  if (javaConfigDirectoryPromise) {
+    return javaConfigDirectoryPromise;
+  }
+
+  javaConfigDirectoryPromise = Promise.resolve().then(() => {
+    mkdirSync(path.dirname(writableJavaConfigRoot), { recursive: true });
+    cpSync(readonlyConfigDirectory, writableJavaConfigRoot, {
+      force: true,
+      recursive: true,
+    });
+
+    return writableJavaConfigRoot;
+  }).catch((error) => {
+    javaConfigDirectoryPromise = null;
+    throw error;
+  });
+
+  return javaConfigDirectoryPromise;
 }
 
 function resolveJavaLanguageServerLauncherJar() {
@@ -1077,7 +1115,7 @@ async function getJavaServerManager() {
   if (!javaServerManagerPromise) {
     javaServerManagerPromise = (async () => {
       const javaBinary = await ensureJavaExecutable();
-      const configDirectory = resolveJavaLanguageServerConfigDir();
+      const configDirectory = await ensureJavaLanguageServerConfigDir();
       const launcherJar = resolveJavaLanguageServerLauncherJar();
 
       if (!javaBinary || !configDirectory || !launcherJar) {
