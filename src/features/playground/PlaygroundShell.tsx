@@ -2369,16 +2369,20 @@ export function PlaygroundShell() {
 
     if (hasRun && outputStr) {
       return (
-        <div className="h-full bg-[#060609] p-4">
+        <div className="h-full bg-[#05070c] p-4">
           <div className="mb-4 flex items-center justify-between font-sans tracking-tight">
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
-              <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-500">Output</span>
+              <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-300">Output</span>
             </div>
-            {execTimeMs !== null ? <span className="text-[10px] text-zinc-600" style={{ fontFamily: editorFontStack }}>{execTimeMs}ms</span> : null}
+            {execTimeMs !== null ? (
+              <span className="text-[10px] text-zinc-400" style={{ fontFamily: editorFontStack }}>
+                {execTimeMs}ms
+              </span>
+            ) : null}
           </div>
           <pre 
-            className="rounded-xl bg-transparent p-1 text-[11px] leading-7 text-zinc-400"
+            className="h-[calc(100%-2.25rem)] overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-[12px] font-medium leading-7 text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] [overflow-wrap:anywhere]"
             style={{ fontFamily: editorFontStack }}
           >
             {outputStr}
