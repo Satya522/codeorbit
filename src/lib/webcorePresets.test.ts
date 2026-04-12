@@ -30,7 +30,14 @@ describe("webcore presets", () => {
     const suggestedSpecifiers = getWebCoreSuggestedPackages().map((pkg) => pkg.specifier);
 
     expect(suggestedSpecifiers).toEqual(
-      expect.arrayContaining(["react@19.2.4", "three@0.179.1", "chart.js@4.5.1", "@supabase/supabase-js@2"]),
+      expect.arrayContaining([
+        "react@19.2.4",
+        "three@0.179.1",
+        "bootstrap@5.3.3",
+        "animate.css@4.1.1",
+        "chart.js@4.5.1",
+        "@supabase/supabase-js@2",
+      ]),
     );
   });
 });

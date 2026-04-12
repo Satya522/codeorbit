@@ -931,6 +931,16 @@ const webCoreSuggestedPackages: WebCoreSuggestedPackage[] = [
     description: "3D scenes, shaders, and visual demos",
   },
   {
+    label: "Bootstrap CSS",
+    specifier: "bootstrap@5.3.3",
+    description: 'Use @import "bootstrap"; inside style.css for a fast UI baseline',
+  },
+  {
+    label: "Animate.css",
+    specifier: "animate.css@4.1.1",
+    description: 'Use @import "animate.css"; for quick motion classes',
+  },
+  {
     label: "Chart.js",
     specifier: "chart.js@4.5.1",
     description: "Frontend-ready charts and dashboards",

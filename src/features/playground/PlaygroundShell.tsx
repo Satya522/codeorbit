@@ -57,6 +57,7 @@ import {
   inlineLinkedStylesheet,
   renameLinkedScript,
   renameLinkedStylesheet,
+  resolveWebCoreCssPackageImports,
   removeLinkedScript,
   removeLinkedStylesheet,
 } from "@/lib/webcoreWorkspace";
@@ -958,11 +959,12 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
   }
 
   for (const block of cssBlocks) {
-    const replacement = inlineLinkedStylesheet(markup, block.name, block.content);
+    const resolvedCssContent = resolveWebCoreCssPackageImports(block.content, workspace.packages);
+    const replacement = inlineLinkedStylesheet(markup, block.name, resolvedCssContent);
 
     markup = replacement.replaced
       ? replacement.markup
-      : injectIntoHead(markup, `<style data-codeorbit-file="${block.name}">\n${block.content}\n</style>`);
+      : injectIntoHead(markup, `<style data-codeorbit-file="${block.name}">\n${resolvedCssContent}\n</style>`);
   }
 
   for (const block of htmlBlocks) {
@@ -2626,6 +2628,10 @@ export function PlaygroundShell() {
                 <section className="space-y-2.5">
                   <div className="px-1">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Packages</p>
+                    <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                      JavaScript imports use browser packages directly. CSS package imports also work here with syntax like{" "}
+                      <span className="font-semibold text-cyan-200">@import "bootstrap";</span> after adding the package.
+                    </p>
                   </div>
 
                   <button

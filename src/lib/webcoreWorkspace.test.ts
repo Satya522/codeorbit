@@ -8,6 +8,7 @@ import {
   inlineLinkedStylesheet,
   renameLinkedScript,
   renameLinkedStylesheet,
+  resolveWebCoreCssPackageImports,
   removeLinkedScript,
   removeLinkedStylesheet,
 } from "@/lib/webcoreWorkspace";
@@ -77,5 +78,21 @@ describe("webcore workspace helpers", () => {
     expect(renamedScripts).toContain('./main.js');
     expect(renamedScripts).not.toContain('./style.css');
     expect(renamedScripts).not.toContain('./script.js');
+  });
+
+  it("resolves package CSS imports through the WebCore package list", () => {
+    const css = `@import "bootstrap";
+@import "animate.css";
+@import "bootstrap/dist/css/bootstrap-grid.min.css";
+body { color: white; }`;
+
+    const resolved = resolveWebCoreCssPackageImports(css, [
+      { name: "bootstrap", specifier: "bootstrap@5.3.3" },
+      { name: "animate.css", specifier: "animate.css@4.1.1" },
+    ]);
+
+    expect(resolved).toContain('https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css');
+    expect(resolved).toContain('https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css');
+    expect(resolved).toContain('https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap-grid.min.css');
   });
 });

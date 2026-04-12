@@ -9,6 +9,11 @@ export type WebCoreBaseFileState = {
   styles: boolean;
 };
 
+export type WebCoreWorkspacePackageRef = {
+  name: string;
+  specifier: string;
+};
+
 const defaultStyles = `:root {
   color-scheme: dark;
   --bg: #060816;
@@ -89,6 +94,13 @@ if (cta) {
     cta.textContent = cta.textContent === "Interaction Ready" ? "Run Interaction" : "Interaction Ready";
   });
 }`;
+
+const knownCssPackageEntryPoints: Record<string, string> = {
+  "animate.css": "animate.min.css",
+  bootstrap: "dist/css/bootstrap.min.css",
+  bulma: "css/bulma.min.css",
+  "@picocss/pico": "css/pico.min.css",
+};
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -224,5 +236,55 @@ export function renameLinkedScript(markup: string, previousName: string, nextNam
   return markup.replace(
     new RegExp(`(<script[^>]*src=["'])(?:\\./)?${escaped}(["'][^>]*>\\s*</script>)`, "i"),
     `$1./${nextName}$2`,
+  );
+}
+
+function isStaticCssImportTarget(value: string) {
+  return /^(?:[a-z]+:|#|\.{1,2}\/|\/)/i.test(value);
+}
+
+function resolveWebCoreCssImportTarget(target: string, packages: WebCoreWorkspacePackageRef[]) {
+  const normalizedTarget = target.trim().replace(/^npm:/i, "");
+
+  if (!normalizedTarget || isStaticCssImportTarget(normalizedTarget)) {
+    return null;
+  }
+
+  for (const pkg of packages) {
+    if (normalizedTarget === pkg.name) {
+      const cssEntryPoint = knownCssPackageEntryPoints[pkg.name];
+      return cssEntryPoint ? `https://cdn.jsdelivr.net/npm/${pkg.specifier}/${cssEntryPoint}` : null;
+    }
+
+    if (normalizedTarget.startsWith(`${pkg.name}/`)) {
+      const relativePath = normalizedTarget.slice(pkg.name.length + 1);
+      return `https://cdn.jsdelivr.net/npm/${pkg.specifier}/${relativePath}`;
+    }
+  }
+
+  return null;
+}
+
+export function resolveWebCoreCssPackageImports(css: string, packages: WebCoreWorkspacePackageRef[]) {
+  if (!css.trim() || packages.length === 0) {
+    return css;
+  }
+
+  const replaceImportTarget = (target: string) => resolveWebCoreCssImportTarget(target, packages) ?? target;
+
+  const withUrlImports = css.replace(
+    /@import\s+url\(\s*(["']?)([^"')]+)\1\s*\)([^;]*);/gi,
+    (_match, _quote = "", target = "", suffix = "") => {
+      const resolvedTarget = replaceImportTarget(target);
+      return `@import url("${resolvedTarget}")${suffix};`;
+    },
+  );
+
+  return withUrlImports.replace(
+    /@import\s+(["'])([^"']+)\1([^;]*);/gi,
+    (_match, _quote = "", target = "", suffix = "") => {
+      const resolvedTarget = replaceImportTarget(target);
+      return `@import url("${resolvedTarget}")${suffix};`;
+    },
   );
 }
