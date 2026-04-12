@@ -291,17 +291,19 @@ export function resolveWebCoreCssPackageImports(css: string, packages: WebCoreWo
 
   const withUrlImports = css.replace(
     /@import\s+url\(\s*(["']?)([^"')]+)\1\s*\)([^;]*);/gi,
-    (_match, _quote = "", target = "", suffix = "") => {
+    (_match, quote = "", target = "", suffix = "") => {
       const resolvedTarget = replaceImportTarget(target);
-      return `@import url("${resolvedTarget}")${suffix};`;
+      const normalizedQuote = quote || '"';
+      return `@import url(${normalizedQuote}${resolvedTarget}${normalizedQuote})${suffix};`;
     },
   );
 
   return withUrlImports.replace(
     /@import\s+(["'])([^"']+)\1([^;]*);/gi,
-    (_match, _quote = "", target = "", suffix = "") => {
+    (_match, quote = "", target = "", suffix = "") => {
       const resolvedTarget = replaceImportTarget(target);
-      return `@import url("${resolvedTarget}")${suffix};`;
+      const normalizedQuote = quote || '"';
+      return `@import url(${normalizedQuote}${resolvedTarget}${normalizedQuote})${suffix};`;
     },
   );
 }
@@ -365,13 +367,6 @@ function transpileWebCoreModule(module: WebCoreScriptModuleInput) {
   if (!needsTranspile(module.kind)) {
     return module.content;
   }
-
-  const scriptKind =
-    module.kind === "jsx"
-      ? ts.ScriptKind.JSX
-      : module.kind === "tsx"
-        ? ts.ScriptKind.TSX
-        : ts.ScriptKind.TS;
 
   return ts.transpileModule(module.content, {
     compilerOptions: {
@@ -452,22 +447,22 @@ export function shouldUseWebCoreModulePipeline(
 }
 
 export function buildWebCoreModuleImportMap(modules: WebCoreScriptModuleInput[]) {
-  const normalizedModules = modules.map((module) => ({
-    ...module,
-    name: normalizeModulePath(module.name),
+  const normalizedModules = modules.map((scriptModule) => ({
+    ...scriptModule,
+    name: normalizeModulePath(scriptModule.name),
   }));
-  const moduleNames = new Set(normalizedModules.map((module) => module.name));
+  const moduleNames = new Set(normalizedModules.map((scriptModule) => scriptModule.name));
   const imports: Record<string, string> = {};
   const entrySpecifiers: string[] = [];
 
-  for (const module of normalizedModules) {
-    const transpiledCode = transpileWebCoreModule(module);
-    const rewrittenCode = rewriteWebCoreLocalImports(transpiledCode, module, moduleNames);
-    const specifier = buildWebCoreVirtualModuleSpecifier(module.name);
+  for (const scriptModule of normalizedModules) {
+    const transpiledCode = transpileWebCoreModule(scriptModule);
+    const rewrittenCode = rewriteWebCoreLocalImports(transpiledCode, scriptModule, moduleNames);
+    const specifier = buildWebCoreVirtualModuleSpecifier(scriptModule.name);
 
     imports[specifier] = buildJavascriptDataUrl(rewrittenCode);
 
-    if (module.entry) {
+    if (scriptModule.entry) {
       entrySpecifiers.push(specifier);
     }
   }

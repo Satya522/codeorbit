@@ -2742,8 +2742,8 @@ export function PlaygroundShell() {
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Packages</p>
                     <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                       JavaScript imports use browser packages directly. CSS package imports also work here with syntax like{" "}
-                      <span className="font-semibold text-cyan-200">@import "bootstrap";</span> or{" "}
-                      <span className="font-semibold text-cyan-200">@import "tailwindcss";</span>.
+                      <span className="font-semibold text-cyan-200">@import &quot;bootstrap&quot;;</span> or{" "}
+                      <span className="font-semibold text-cyan-200">@import &quot;tailwindcss&quot;;</span>.
                     </p>
                   </div>
 

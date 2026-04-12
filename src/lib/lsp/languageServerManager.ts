@@ -52,13 +52,6 @@ type CompletionItemLike = {
   label?: string | { label?: string };
 };
 
-type CompletionResultLike =
-  | CompletionItemLike[]
-  | {
-      items?: CompletionItemLike[];
-      isIncomplete?: boolean;
-    };
-
 type ManagedDocument = {
   language: string;
   text: string;
