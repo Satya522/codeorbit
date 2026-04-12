@@ -422,7 +422,7 @@ function App() {
 const root = document.getElementById("root");
 
 if (root) {
-      createRoot(root).render(h(App));
+  createRoot(root).render(h(App));
 }`,
   },
   {
