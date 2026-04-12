@@ -1,13 +1,1 @@
-<svg width="1000" height="800" viewBox="0 0 1000 800" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="1000" height="800" fill="#080910"/>
-  <rect x="24" y="24" width="952" height="752" rx="34" fill="#0D1018" stroke="rgba(255,255,255,0.10)"/>
-  <circle cx="190" cy="690" r="140" fill="#10B981" fill-opacity="0.14"/>
-  <rect x="90" y="88" width="390" height="54" rx="27" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.08)"/>
-  <rect x="90" y="186" width="260" height="504" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-  <rect x="384" y="186" width="526" height="204" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-  <rect x="384" y="422" width="526" height="122" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-  <rect x="384" y="568" width="526" height="122" rx="24" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)"/>
-  <text x="92" y="132" fill="#E4E4E7" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" letter-spacing="4">PROBLEM SOLVING</text>
-  <text x="92" y="260" fill="white" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700">Practice + DSA Flow</text>
-  <text x="92" y="306" fill="#A1A1AA" font-family="Arial, Helvetica, sans-serif" font-size="22">Use this file for roadmap tracking, practice tables, or synced progress views.</text>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="800" fill="none" viewBox="0 0 1000 800"><rect width="1000" height="800" fill="#080910"/><rect width="952" height="752" x="24" y="24" fill="#0D1018" stroke="rgba(255,255,255,0.10)" rx="34"/><circle cx="190" cy="690" r="140" fill="#10B981" fill-opacity=".14"/><rect width="390" height="54" x="90" y="88" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.08)" rx="27"/><rect width="260" height="504" x="90" y="186" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" rx="24"/><rect width="526" height="204" x="384" y="186" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" rx="24"/><rect width="526" height="122" x="384" y="422" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" rx="24"/><rect width="526" height="122" x="384" y="568" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" rx="24"/><text x="92" y="132" fill="#E4E4E7" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" letter-spacing="4">PROBLEM SOLVING</text><text x="92" y="260" fill="#fff" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="700">Practice + DSA Flow</text><text x="92" y="306" fill="#A1A1AA" font-family="Arial, Helvetica, sans-serif" font-size="22">Use this file for roadmap tracking, practice tables, or synced progress views.</text></svg>
