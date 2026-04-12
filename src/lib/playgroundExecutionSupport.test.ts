@@ -89,14 +89,14 @@ describe("playground execution feedback", () => {
   it("explains missing npm packages clearly", () => {
     const message = formatExecutionFeedback("javascript", "Error: Cannot find module 'axios'");
 
-    expect(message).toContain("does not install npm packages");
+    expect(message).toContain("Imports & Setup");
     expect(message).toContain("WebCore");
   });
 
   it("explains missing Java dependencies clearly", () => {
     const message = formatExecutionFeedback("java", "package com.google.gson does not exist");
 
-    expect(message).toContain("auto-adds common JDK imports");
-    expect(message).toContain("Maven or Gradle");
+    expect(message).toContain("Common Java imports");
+    expect(message).toContain("Maven coordinates");
   });
 });

@@ -31,6 +31,35 @@ import {
   type MonacoInstance,
   type PlaygroundMonacoWorkspaceFile,
 } from "@/lib/playgroundMonaco";
+import {
+  buildRuntimeDependencyWorkspaceFiles,
+  detectRuntimeImports,
+  inferManagedDependencyName,
+  isRemoteDependencyLanguage,
+  mergeManagedDependenciesWithDetectedImports,
+  normalizeManagedDependencySpecifier,
+  type DetectedRuntimeImport,
+  type ManagedRuntimeDependency,
+  type RemoteDependencyLanguage,
+} from "@/lib/playgroundDependencies";
+import {
+  getWebCorePresetDefinitions,
+  getWebCoreSuggestedPackages,
+  type WebCorePresetId,
+  type WebCorePresetPackage,
+} from "@/lib/webcorePresets";
+import {
+  buildDefaultWebCoreMarkup,
+  buildDefaultWebCoreScript,
+  buildDefaultWebCoreStyles,
+  ensureWebCoreBaseLinks,
+  inlineLinkedScript,
+  inlineLinkedStylesheet,
+  renameLinkedScript,
+  renameLinkedStylesheet,
+  removeLinkedScript,
+  removeLinkedStylesheet,
+} from "@/lib/webcoreWorkspace";
 import type { SqlResultTable } from "@/lib/sqlRunner";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
@@ -88,6 +117,8 @@ type HtmlWorkspaceState = {
   packages: HtmlWorkspacePackage[];
 };
 
+type RuntimeDependencyState = Record<RemoteDependencyLanguage, ManagedRuntimeDependency[]>;
+
 type CachedRemoteExecutionResult = {
   error: string;
   output: string;
@@ -105,8 +136,8 @@ const languageOptions: LanguageOption[] = [
     iconPath: "/icons/languages/java.png",
     monaco: "java",
     filename: "Main.java",
-    description: "JDK compilation with stdin support, runtime feedback, and auto-added common imports.",
-    runtime: "Remote JDK 17",
+    description: "Secure remote JDK runner for DSA, stdin/stdout, and algorithm-focused practice.",
+    runtime: "Secure JDK 17",
     accentRgb: "249,115,22",
     engineLanguage: "java",
     starter: `public class Main {
@@ -122,8 +153,8 @@ const languageOptions: LanguageOption[] = [
     iconPath: "/icons/languages/python.png",
     monaco: "python",
     filename: "main.py",
-    description: "Remote Python execution with stdin, stdout, and stderr support.",
-    runtime: "Remote Python",
+    description: "Secure remote Python runner for scripts, problem solving, and clean stdin/stdout loops.",
+    runtime: "Secure Python",
     accentRgb: "52,211,153",
     engineLanguage: "python",
     starter: `print("Hello CodeOrbit")`,
@@ -135,8 +166,8 @@ const languageOptions: LanguageOption[] = [
     iconPath: "/icons/languages/javascript.png",
     monaco: "javascript",
     filename: "main.js",
-    description: "Node-style remote JavaScript execution with Input-tab prompts. Browser npm packages belong in WebCore.",
-    runtime: "Remote Node",
+    description: "Secure Node-style runner for scripts and backend logic. Browser packages and UI code belong in WebCore.",
+    runtime: "Secure Node",
     accentRgb: "251,191,36",
     engineLanguage: "javascript",
     starter: `console.log("Hello CodeOrbit")`,
@@ -145,10 +176,11 @@ const languageOptions: LanguageOption[] = [
     id: "cpp",
     label: "C++",
     icon: "C++",
+    iconPath: "/icons/languages/cpp.svg",
     monaco: "cpp",
     filename: "main.cpp",
-    description: "Remote C++ execution for fast systems-level experiments.",
-    runtime: "Remote G++",
+    description: "Secure C++ compile-run focused on DSA speed, stdin, and tight algorithm loops.",
+    runtime: "Secure G++",
     accentRgb: "139,92,246",
     engineLanguage: "cpp",
     starter: `#include <iostream>
@@ -162,10 +194,11 @@ int main() {
     id: "go",
     label: "Go",
     icon: "Go",
+    iconPath: "/icons/languages/go.svg",
     monaco: "go",
     filename: "main.go",
-    description: "Remote Go execution with stdin and terminal output.",
-    runtime: "Remote Go",
+    description: "Secure Go runner for problem solving, stdin/stdout, and clean systems-style scripts.",
+    runtime: "Secure Go",
     accentRgb: "56,189,248",
     engineLanguage: "go",
     starter: `package main
@@ -183,38 +216,14 @@ func main() {
     iconPath: "/icons/languages/html.png",
     monaco: "html",
     filename: "index.html",
-    description: "Build HTML, CSS, and JavaScript together in one live browser workspace with browser packages.",
-    runtime: "Browser Preview",
+    description: "Frontend-first browser workspace for React, Three.js, charts, Supabase, and import-heavy UI work.",
+    runtime: "Frontend Workspace",
     accentRgb: "56,189,248",
-    starter: `<!DOCTYPE html>
-<html>
-  <head>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: radial-gradient(circle at top, #1e1b4b, #09090b 60%);
-        color: white;
-        font-family: Inter, sans-serif;
-      }
-      .card {
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(24, 24, 27, 0.65);
-        backdrop-filter: blur(12px);
-        border-radius: 24px;
-        padding: 32px;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="card">
-      <h1>Hello CodeOrbit</h1>
-      <p>Your WebCore preview is ready.</p>
-    </div>
-  </body>
-</html>`,
+    starter: buildDefaultWebCoreMarkup({
+      markup: "index.html",
+      script: "script.js",
+      styles: "style.css",
+    }),
   },
   {
     id: "sql",
@@ -245,12 +254,25 @@ const starterTemplates = Object.fromEntries(languageOptions.map((option) => [opt
 const playgroundLanguageStorageKey = "codeorbit:playground:language";
 const playgroundCodesStorageKey = "codeorbit:playground:codes";
 const htmlWorkspaceStorageKey = "codeorbit:playground:html-workspace";
+const runtimeDependencyStorageKey = "codeorbit:playground:runtime-dependencies";
 const playgroundEditorFontStorageKey = "codeorbit:playground:editor-font";
 const MAX_LOCAL_EXECUTION_CACHE_ENTRIES = 20;
 const prewarmableExecutionLanguages: LanguageId[] = ["java", "python", "cpp"];
+const webCorePresetDefinitions = getWebCorePresetDefinitions();
+const webCoreSuggestedPackages = getWebCoreSuggestedPackages();
+const defaultWebCoreFileNames = {
+  markup: "index.html",
+  script: "script.js",
+  styles: "style.css",
+} as const;
 
-function buildRemoteExecutionCacheKey(language: LanguageId, code: string, stdin: string) {
-  return `${language}\u0000${stdin}\u0000${code}`;
+function buildRemoteExecutionCacheKey(
+  language: LanguageId,
+  code: string,
+  stdin: string,
+  dependencies: ManagedRuntimeDependency[] = [],
+) {
+  return `${language}\u0000${stdin}\u0000${dependencies.map((dependency) => dependency.specifier).join("\u0001")}\u0000${code}`;
 }
 
 function rememberCachedRemoteExecution(
@@ -301,133 +323,22 @@ const sandboxFontOptions: SandboxFontOption[] = [
 
 const htmlWorkspaceFiles = {
   markup: {
-    filename: "index.html",
+    filename: defaultWebCoreFileNames.markup,
     label: "HTML",
     monaco: "html",
-    starter: `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CodeOrbit WebCore Preview</title>
-  </head>
-  <body>
-    <main class="shell">
-      <section class="card">
-        <span class="eyebrow">WebCore Preview</span>
-        <h1 id="title">Build with WebCore</h1>
-        <p id="description">
-          Use HTML, CSS, and JavaScript together in one live preview.
-        </p>
-        <button id="actionButton" type="button">Run interaction</button>
-        <div id="log" class="log">Preview ready.</div>
-      </section>
-    </main>
-  </body>
-</html>`,
+    starter: buildDefaultWebCoreMarkup(defaultWebCoreFileNames),
   },
   styles: {
-    filename: "style.css",
+    filename: defaultWebCoreFileNames.styles,
     label: "CSS",
     monaco: "css",
-    starter: `* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-height: 100vh;
-  font-family: Inter, Arial, sans-serif;
-  background: radial-gradient(circle at top, #1e293b, #020617 68%);
-  color: #e2e8f0;
-}
-
-.shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 32px;
-}
-
-.card {
-  width: min(680px, 100%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(15, 23, 42, 0.78);
-  backdrop-filter: blur(14px);
-  border-radius: 24px;
-  padding: 28px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
-}
-
-.eyebrow {
-  display: inline-flex;
-  border-radius: 999px;
-  padding: 6px 10px;
-  background: rgba(34, 211, 238, 0.1);
-  color: #a5f3fc;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-h1 {
-  margin: 16px 0 10px;
-  color: white;
-  font-size: clamp(2rem, 5vw, 3.4rem);
-  line-height: 0.95;
-}
-
-p {
-  margin: 0 0 20px;
-  color: #94a3b8;
-  line-height: 1.7;
-}
-
-button {
-  border: none;
-  border-radius: 999px;
-  padding: 12px 18px;
-  background: linear-gradient(90deg, #8b5cf6, #06b6d4);
-  color: white;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.log {
-  margin-top: 18px;
-  border-radius: 16px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
-}`,
+    starter: buildDefaultWebCoreStyles(),
   },
   script: {
-    filename: "script.js",
+    filename: defaultWebCoreFileNames.script,
     label: "JS",
     monaco: "javascript",
-    starter: `const log = document.getElementById("log");
-const button = document.getElementById("actionButton");
-const title = document.getElementById("title");
-
-function writeMessage(message) {
-  if (log) {
-    log.textContent = message;
-  }
-}
-
-if (button) {
-  button.addEventListener("click", () => {
-    if (title) {
-      title.textContent = "Interaction complete";
-    }
-
-    writeMessage("JavaScript is connected and running inside the WebCore preview.");
-  });
-}
-
-writeMessage("Preview ready. Click the button to test the JavaScript file.");`,
+    starter: buildDefaultWebCoreScript(),
   },
 } as const;
 
@@ -435,6 +346,7 @@ function clearStoredPlaygroundState() {
   window.localStorage.removeItem(playgroundCodesStorageKey);
   window.localStorage.removeItem(playgroundLanguageStorageKey);
   window.localStorage.removeItem(htmlWorkspaceStorageKey);
+  window.localStorage.removeItem(runtimeDependencyStorageKey);
   window.localStorage.removeItem(playgroundEditorFontStorageKey);
 }
 
@@ -448,6 +360,101 @@ function buildDefaultCodeMap() {
     html: starterTemplates.html,
     sql: starterTemplates.sql,
   } satisfies Record<LanguageId, string>;
+}
+
+function buildRuntimeDependencyId() {
+  return `runtime-dependency-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function buildDefaultRuntimeDependencyMap() {
+  return {
+    cpp: [] as ManagedRuntimeDependency[],
+    go: [] as ManagedRuntimeDependency[],
+    java: [] as ManagedRuntimeDependency[],
+    javascript: [] as ManagedRuntimeDependency[],
+    python: [] as ManagedRuntimeDependency[],
+  } satisfies RuntimeDependencyState;
+}
+
+function buildStoredRuntimeDependencies(raw: unknown): RuntimeDependencyState {
+  const defaults = buildDefaultRuntimeDependencyMap();
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return defaults;
+  }
+
+  const record = raw as Record<string, unknown>;
+
+  for (const language of Object.keys(defaults) as RemoteDependencyLanguage[]) {
+    const rawEntries = Array.isArray(record[language]) ? record[language] : [];
+
+    defaults[language] = rawEntries.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return [];
+      }
+
+      const dependencyRecord = entry as Record<string, unknown>;
+      const specifier =
+        typeof dependencyRecord.specifier === "string"
+          ? normalizeManagedDependencySpecifier(language, dependencyRecord.specifier)
+          : "";
+      const name =
+        typeof dependencyRecord.name === "string" && dependencyRecord.name.trim().length > 0
+          ? dependencyRecord.name.trim()
+          : inferManagedDependencyName(language, specifier);
+
+      if (!specifier || !name) {
+        return [];
+      }
+
+      return [
+        {
+          id:
+            typeof dependencyRecord.id === "string" && dependencyRecord.id.trim().length > 0
+              ? dependencyRecord.id
+              : buildRuntimeDependencyId(),
+          name,
+          specifier,
+        } satisfies ManagedRuntimeDependency,
+      ];
+    });
+  }
+
+  return defaults;
+}
+
+function canManuallyManageRuntimeDependencies(language: RemoteDependencyLanguage) {
+  return language !== "cpp";
+}
+
+function getRuntimeDependencyPrompt(language: RemoteDependencyLanguage) {
+  switch (language) {
+    case "javascript":
+      return "Add npm package (examples: axios, zod, react@19.2.0)";
+    case "python":
+      return "Add Python package (examples: requests, numpy==2.2.5, Pillow)";
+    case "java":
+      return "Add Maven dependency (example: com.google.code.gson:gson:2.11.0)";
+    case "go":
+      return "Add Go module (example: github.com/gin-gonic/gin)";
+    case "cpp":
+      return "C++ external libraries come from the sandbox image, so manual package install is not available here.";
+  }
+}
+
+function getRuntimeDependencyHint(language: RemoteDependencyLanguage) {
+  switch (language) {
+    case "javascript":
+      return "Detected imports can auto-link npm packages for runs and IntelliSense.";
+    case "python":
+      return "Standard library imports stay local; third-party modules can be tracked here explicitly.";
+    case "java":
+      return "Common JDK imports are already handled. External libraries need Maven coordinates.";
+    case "go":
+      return "Go standard packages stay builtin; external modules can be linked from imports.";
+    case "cpp":
+      return "Includes are tracked for clarity, but native libraries still belong in the sandbox image itself.";
+  }
 }
 
 function isLanguageId(value: string): value is LanguageId {
@@ -572,7 +579,50 @@ function getHtmlWorkspacePackageName(specifier: string) {
   return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
 }
 
+function buildHtmlWorkspacePackageRecord(pkg: WebCorePresetPackage): HtmlWorkspacePackage {
+  return {
+    id: buildHtmlWorkspacePackageId(),
+    name: pkg.name,
+    specifier: normalizeHtmlWorkspacePackageSpecifier(pkg.specifier),
+  };
+}
+
+function buildDefaultHtmlWorkspaceFromPreset(presetId: WebCorePresetId): HtmlWorkspaceState {
+  const preset = getWebCorePresetDefinitions().find((entry) => entry.id === presetId) ?? getWebCorePresetDefinitions()[0];
+  const fileNames = {
+    markup: htmlWorkspaceFiles.markup.filename,
+    script: htmlWorkspaceFiles.script.filename,
+    styles: htmlWorkspaceFiles.styles.filename,
+  };
+
+  return {
+    activeFile: "script",
+    enabled: {
+      script: true,
+      styles: true,
+    },
+    fileNames: {
+      markup: fileNames.markup,
+      script: fileNames.script,
+      styles: fileNames.styles,
+    },
+    files: {
+      markup: ensureWebCoreBaseLinks(preset.markup, fileNames, { script: true, styles: true }),
+      script: preset.script,
+      styles: preset.styles,
+    },
+    customFiles: [],
+    packages: preset.packages.map(buildHtmlWorkspacePackageRecord),
+  };
+}
+
 function buildDefaultHtmlWorkspace(markupSource?: string, enableExtraFiles = true): HtmlWorkspaceState {
+  const fileNames = {
+    markup: htmlWorkspaceFiles.markup.filename,
+    script: htmlWorkspaceFiles.script.filename,
+    styles: htmlWorkspaceFiles.styles.filename,
+  };
+
   return {
     activeFile: "markup",
     enabled: {
@@ -580,12 +630,15 @@ function buildDefaultHtmlWorkspace(markupSource?: string, enableExtraFiles = tru
       styles: enableExtraFiles,
     },
     fileNames: {
-      markup: htmlWorkspaceFiles.markup.filename,
-      script: htmlWorkspaceFiles.script.filename,
-      styles: htmlWorkspaceFiles.styles.filename,
+      markup: fileNames.markup,
+      script: fileNames.script,
+      styles: fileNames.styles,
     },
     files: {
-      markup: markupSource ?? htmlWorkspaceFiles.markup.starter,
+      markup: ensureWebCoreBaseLinks(markupSource ?? htmlWorkspaceFiles.markup.starter, fileNames, {
+        script: enableExtraFiles,
+        styles: enableExtraFiles,
+      }),
       script: htmlWorkspaceFiles.script.starter,
       styles: htmlWorkspaceFiles.styles.starter,
     },
@@ -704,6 +757,8 @@ function buildStoredHtmlWorkspace(raw: unknown, fallbackMarkup?: string): HtmlWo
   ) {
     nextState.activeFile = "markup";
   }
+
+  nextState.files.markup = ensureWebCoreBaseLinks(nextState.files.markup, nextState.fileNames, nextState.enabled);
 
   return nextState;
 }
@@ -865,21 +920,49 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
     workspace.packages.length > 0 ||
     scriptBlocks.some((block) => /\bimport\s+.+from\s+['"]|^\s*import\s+['"]|\bexport\s+/m.test(block.content));
 
+  markup = ensureWebCoreBaseLinks(markup, workspace.fileNames, workspace.enabled);
+
+  if (!workspace.enabled.styles) {
+    markup = removeLinkedStylesheet(markup, workspace.fileNames.styles);
+  }
+
+  if (!workspace.enabled.script) {
+    markup = removeLinkedScript(markup, workspace.fileNames.script);
+  }
+
+  for (const file of workspace.customFiles) {
+    if (file.includeInPreview) {
+      continue;
+    }
+
+    if (file.kind === "css") {
+      markup = removeLinkedStylesheet(markup, file.name);
+    }
+
+    if (file.kind === "javascript") {
+      markup = removeLinkedScript(markup, file.name);
+    }
+  }
+
   if (workspace.packages.length > 0) {
     const imports = workspace.packages.reduce<Record<string, string>>((acc, pkg) => {
-      acc[pkg.name] = `https://esm.sh/${pkg.specifier}`;
+      acc[pkg.name] = `https://esm.sh/${pkg.specifier}?bundle`;
       acc[`${pkg.name}/`] = `https://esm.sh/${pkg.specifier}/`;
       return acc;
     }, {});
+    const preloadLinks = workspace.packages
+      .map((pkg) => `<link rel="modulepreload" href="https://esm.sh/${pkg.specifier}?bundle" />`)
+      .join("\n");
 
-    markup = injectIntoHead(
-      markup,
-      `<script type="importmap" data-codeorbit-importmap>\n${JSON.stringify({ imports }, null, 2)}\n</script>`,
-    );
+    markup = injectIntoHead(markup, `${preloadLinks}\n<script type="importmap" data-codeorbit-importmap>\n${JSON.stringify({ imports }, null, 2)}\n</script>`);
   }
 
   for (const block of cssBlocks) {
-    markup = injectIntoHead(markup, `<style data-codeorbit-file="${block.name}">\n${block.content}\n</style>`);
+    const replacement = inlineLinkedStylesheet(markup, block.name, block.content);
+
+    markup = replacement.replaced
+      ? replacement.markup
+      : injectIntoHead(markup, `<style data-codeorbit-file="${block.name}">\n${block.content}\n</style>`);
   }
 
   for (const block of htmlBlocks) {
@@ -887,10 +970,14 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
   }
 
   for (const block of scriptBlocks) {
-    markup = injectIntoBody(
-      markup,
-      `<script${hasModuleScripts ? ` type="module"` : ""} data-codeorbit-file="${block.name}">\n${block.content}\n</script>`,
-    );
+    const replacement = inlineLinkedScript(markup, block.name, block.content, hasModuleScripts);
+
+    markup = replacement.replaced
+      ? replacement.markup
+      : injectIntoBody(
+          markup,
+          `<script${hasModuleScripts ? ` type="module"` : ""} data-codeorbit-file="${block.name}">\n${block.content}\n</script>`,
+        );
   }
 
   return markup;
@@ -959,11 +1046,14 @@ export function PlaygroundShell() {
   const [activeTab, setActiveTab] = useState<"output" | "errors" | "input">("output");
   const [isPlaygroundFullscreen, setIsPlaygroundFullscreen] = useState(false);
   const [isWebCoreActionsOpen, setIsWebCoreActionsOpen] = useState(false);
+  const [isRuntimeDependenciesOpen, setIsRuntimeDependenciesOpen] = useState(false);
   const [webCoreActionsPosition, setWebCoreActionsPosition] = useState<{ top: number; left: number } | null>(null);
+  const [runtimeDependenciesPosition, setRuntimeDependenciesPosition] = useState<{ top: number; left: number } | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [hasRun, setHasRun] = useState(false);
   const [codes, setCodes] = useState<Record<LanguageId, string>>(buildDefaultCodeMap);
   const [htmlWorkspace, setHtmlWorkspace] = useState<HtmlWorkspaceState>(buildDefaultHtmlWorkspace());
+  const [runtimeDependencies, setRuntimeDependencies] = useState<RuntimeDependencyState>(buildDefaultRuntimeDependencyMap());
   const [inputStr, setInputStr] = useState("");
   const [outputStr, setOutputStr] = useState("");
   const [errorStr, setErrorStr] = useState("");
@@ -974,6 +1064,7 @@ export function PlaygroundShell() {
   const playgroundRootRef = useRef<HTMLDivElement | null>(null);
   const runStartRef = useRef<number>(0);
   const webCoreActionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const runtimeDependenciesButtonRef = useRef<HTMLButtonElement | null>(null);
   const monacoRef = useRef<MonacoInstance | null>(null);
   const editorRef = useRef<MonacoEditorInstance | null>(null);
   const localExecutionCacheRef = useRef<Map<string, CachedRemoteExecutionResult>>(new Map());
@@ -983,6 +1074,32 @@ export function PlaygroundShell() {
   const selectedEditorFont =
     sandboxFontOptions.find((option) => option.id === editorFont) ?? sandboxFontOptions[0];
   const editorFontStack = selectedEditorFont.stack;
+  const activeRuntimeLanguage = isRemoteDependencyLanguage(activeLang) ? activeLang : null;
+  const currentRemoteCode = remoteExecutionLanguages.includes(activeLang) ? codes[activeLang] : "";
+  const activeRuntimeDependencies = activeRuntimeLanguage ? runtimeDependencies[activeRuntimeLanguage] : [];
+  const detectedRuntimeImports =
+    remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage
+      ? detectRuntimeImports(activeRuntimeLanguage, currentRemoteCode)
+      : [];
+  const syncedRuntimeDependencies =
+    remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage
+      ? mergeManagedDependenciesWithDetectedImports(activeRuntimeLanguage, activeRuntimeDependencies, currentRemoteCode)
+      : activeRuntimeDependencies;
+  const linkedRuntimeDependencySpecifiers = new Set(
+    syncedRuntimeDependencies.map((dependency) =>
+      activeRuntimeLanguage
+        ? normalizeManagedDependencySpecifier(activeRuntimeLanguage, dependency.specifier)
+        : dependency.specifier,
+    ),
+  );
+  const pendingDetectedRuntimeImports = detectedRuntimeImports.filter(
+    (detectedImport) =>
+      detectedImport.canAutoAdd &&
+      activeRuntimeLanguage &&
+      !linkedRuntimeDependencySpecifiers.has(
+        normalizeManagedDependencySpecifier(activeRuntimeLanguage, detectedImport.packageName),
+      ),
+  );
 
   useEffect(() => {
     if (!isAuthLoaded) {
@@ -996,6 +1113,7 @@ export function PlaygroundShell() {
         setEditorFont("jetbrains-mono");
         setCodes(buildDefaultCodeMap());
         setHtmlWorkspace(buildDefaultHtmlWorkspace());
+        setRuntimeDependencies(buildDefaultRuntimeDependencyMap());
         return;
       }
 
@@ -1020,11 +1138,16 @@ export function PlaygroundShell() {
       }
 
       const storedHtmlWorkspace = window.localStorage.getItem(htmlWorkspaceStorageKey);
+      const storedRuntimeDependencies = window.localStorage.getItem(runtimeDependencyStorageKey);
 
       if (storedHtmlWorkspace) {
         setHtmlWorkspace(buildStoredHtmlWorkspace(JSON.parse(storedHtmlWorkspace), restoredHtmlMarkup));
       } else if (restoredHtmlMarkup) {
         setHtmlWorkspace(buildDefaultHtmlWorkspace(restoredHtmlMarkup, false));
+      }
+
+      if (storedRuntimeDependencies) {
+        setRuntimeDependencies(buildStoredRuntimeDependencies(JSON.parse(storedRuntimeDependencies)));
       }
 
       const storedLanguage = window.localStorage.getItem(playgroundLanguageStorageKey);
@@ -1057,11 +1180,12 @@ export function PlaygroundShell() {
       window.localStorage.setItem(playgroundCodesStorageKey, JSON.stringify(codes));
       window.localStorage.setItem(playgroundLanguageStorageKey, activeLang);
       window.localStorage.setItem(htmlWorkspaceStorageKey, JSON.stringify(htmlWorkspace));
+      window.localStorage.setItem(runtimeDependencyStorageKey, JSON.stringify(runtimeDependencies));
       window.localStorage.setItem(playgroundEditorFontStorageKey, editorFont);
     } catch (error) {
       console.warn("Unable to persist playground state", error);
     }
-  }, [activeLang, codes, editorFont, hasRestoredPlaygroundState, htmlWorkspace, isAuthLoaded, isSignedIn]);
+  }, [activeLang, codes, editorFont, hasRestoredPlaygroundState, htmlWorkspace, isAuthLoaded, isSignedIn, runtimeDependencies]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -1167,6 +1291,7 @@ export function PlaygroundShell() {
       }
 
       setIsWebCoreActionsOpen(false);
+      setIsRuntimeDependenciesOpen(false);
       setActiveLang(next);
       clearPanels();
     },
@@ -1272,6 +1397,10 @@ export function PlaygroundShell() {
 
   const syncMonacoWorkspace = useCallback(
     (monaco: MonacoInstance) => {
+      const runtimeDependencySupportFiles: PlaygroundMonacoWorkspaceFile[] =
+        activeLang !== "html" && activeLang !== "sql" && activeRuntimeLanguage
+          ? buildRuntimeDependencyWorkspaceFiles(activeRuntimeLanguage, syncedRuntimeDependencies, buildPlaygroundModelPath)
+          : [];
       const workspaceFiles: PlaygroundMonacoWorkspaceFile[] =
         activeLang === "html"
           ? [
@@ -1310,15 +1439,20 @@ export function PlaygroundShell() {
                 path: buildPlaygroundModelPath(activeLang, lang.filename),
                 value: codes[activeLang],
               },
+              ...runtimeDependencySupportFiles,
             ];
 
       syncPlaygroundMonacoWorkspace(
         monaco,
         workspaceFiles,
-        activeLang === "html" ? htmlWorkspace.packages : [],
+        activeLang === "html"
+          ? htmlWorkspace.packages
+          : activeLang === "javascript"
+            ? syncedRuntimeDependencies
+            : [],
       );
     },
-    [activeLang, codes, htmlWorkspace, lang.filename, lang.monaco],
+    [activeLang, activeRuntimeLanguage, codes, htmlWorkspace, lang.filename, lang.monaco, syncedRuntimeDependencies],
   );
 
   useEffect(() => {
@@ -1376,6 +1510,18 @@ export function PlaygroundShell() {
           ...current.fileNames,
           [activeFile]: uniqueName,
         },
+        files:
+          activeFile === "styles"
+            ? {
+                ...current.files,
+                markup: renameLinkedStylesheet(current.files.markup, current.fileNames.styles, uniqueName),
+              }
+            : activeFile === "script"
+              ? {
+                  ...current.files,
+                  markup: renameLinkedScript(current.files.markup, current.fileNames.script, uniqueName),
+                }
+              : current.files,
       }));
       return;
     }
@@ -1478,12 +1624,152 @@ export function PlaygroundShell() {
     });
   }, []);
 
+  const addSuggestedHtmlWorkspacePackage = useCallback((specifier: string) => {
+    const normalizedSpecifier = normalizeHtmlWorkspacePackageSpecifier(specifier);
+    const name = getHtmlWorkspacePackageName(normalizedSpecifier);
+
+    if (!normalizedSpecifier || !name) {
+      return;
+    }
+
+    setHtmlWorkspace((current) => {
+      const existingPackage = current.packages.find((pkg) => pkg.name === name);
+      const nextPackage: HtmlWorkspacePackage = existingPackage
+        ? { ...existingPackage, specifier: normalizedSpecifier }
+        : {
+            id: buildHtmlWorkspacePackageId(),
+            name,
+            specifier: normalizedSpecifier,
+          };
+
+      return {
+        ...current,
+        activeFile: "script",
+        enabled: {
+          ...current.enabled,
+          script: true,
+        },
+        packages: existingPackage
+          ? current.packages.map((pkg) => (pkg.name === name ? nextPackage : pkg))
+          : [...current.packages, nextPackage],
+      };
+    });
+  }, []);
+
+  const applyWebCorePreset = useCallback((presetId: WebCorePresetId) => {
+    const preset = webCorePresetDefinitions.find((entry) => entry.id === presetId) ?? webCorePresetDefinitions[0];
+    setHtmlWorkspace(buildDefaultHtmlWorkspaceFromPreset(preset.id));
+    setOutputStr(`Loaded the ${preset.label} WebCore starter.`);
+    setErrorStr("");
+    setActiveTab("output");
+  }, []);
+
   const removeHtmlWorkspacePackage = useCallback((packageId: string) => {
     setHtmlWorkspace((current) => ({
       ...current,
       packages: current.packages.filter((pkg) => pkg.id !== packageId),
     }));
   }, []);
+
+  const addRuntimeDependency = useCallback(() => {
+    if (!activeRuntimeLanguage) {
+      return;
+    }
+
+    if (!canManuallyManageRuntimeDependencies(activeRuntimeLanguage)) {
+      setOutputStr(getRuntimeDependencyHint(activeRuntimeLanguage));
+      setErrorStr("");
+      setActiveTab("output");
+      return;
+    }
+
+    const promptedSpecifier = window.prompt(getRuntimeDependencyPrompt(activeRuntimeLanguage), "");
+
+    if (promptedSpecifier === null) {
+      return;
+    }
+
+    const specifier = normalizeManagedDependencySpecifier(activeRuntimeLanguage, promptedSpecifier);
+    const name = inferManagedDependencyName(activeRuntimeLanguage, specifier);
+
+    if (!specifier || !name) {
+      return;
+    }
+
+    setRuntimeDependencies((current) => {
+      const existingDependency = current[activeRuntimeLanguage].find(
+        (dependency) =>
+          normalizeManagedDependencySpecifier(activeRuntimeLanguage, dependency.specifier) === specifier,
+      );
+      const nextDependency: ManagedRuntimeDependency = existingDependency
+        ? { ...existingDependency, name, specifier }
+        : {
+            id: buildRuntimeDependencyId(),
+            name,
+            specifier,
+          };
+
+      return {
+        ...current,
+        [activeRuntimeLanguage]: existingDependency
+          ? current[activeRuntimeLanguage].map((dependency) => (dependency.id === existingDependency.id ? nextDependency : dependency))
+          : [...current[activeRuntimeLanguage], nextDependency],
+      };
+    });
+  }, [activeRuntimeLanguage]);
+
+  const linkDetectedRuntimeImport = useCallback(
+    (detectedImport: DetectedRuntimeImport) => {
+      if (!activeRuntimeLanguage || !detectedImport.canAutoAdd) {
+        return;
+      }
+
+      const specifier = normalizeManagedDependencySpecifier(activeRuntimeLanguage, detectedImport.packageName);
+      const name = inferManagedDependencyName(activeRuntimeLanguage, specifier);
+
+      if (!specifier || !name) {
+        return;
+      }
+
+      setRuntimeDependencies((current) => {
+        const alreadyLinked = current[activeRuntimeLanguage].some(
+          (dependency) =>
+            normalizeManagedDependencySpecifier(activeRuntimeLanguage, dependency.specifier) === specifier,
+        );
+
+        if (alreadyLinked) {
+          return current;
+        }
+
+        return {
+          ...current,
+          [activeRuntimeLanguage]: [
+            ...current[activeRuntimeLanguage],
+            {
+              id: buildRuntimeDependencyId(),
+              name,
+              specifier,
+            },
+          ],
+        };
+      });
+    },
+    [activeRuntimeLanguage],
+  );
+
+  const removeRuntimeDependency = useCallback(
+    (dependencyId: string) => {
+      if (!activeRuntimeLanguage) {
+        return;
+      }
+
+      setRuntimeDependencies((current) => ({
+        ...current,
+        [activeRuntimeLanguage]: current[activeRuntimeLanguage].filter((dependency) => dependency.id !== dependencyId),
+      }));
+    },
+    [activeRuntimeLanguage],
+  );
 
   const duplicateCurrentHtmlWorkspaceFile = useCallback(() => {
     if (!currentHtmlFile) {
@@ -1564,6 +1850,40 @@ export function PlaygroundShell() {
     }));
   }, [htmlWorkspace.activeFile]);
 
+  const updateRuntimeDependenciesPosition = useCallback(() => {
+    if (!runtimeDependenciesButtonRef.current) {
+      return;
+    }
+
+    const rect = runtimeDependenciesButtonRef.current.getBoundingClientRect();
+    const menuWidth = 380;
+    const nextLeft = Math.min(Math.max(16, rect.right - menuWidth), window.innerWidth - menuWidth - 16);
+
+    setRuntimeDependenciesPosition({
+      top: rect.bottom + 12,
+      left: nextLeft,
+    });
+  }, []);
+
+  const openRuntimeDependencies = useCallback(() => {
+    updateRuntimeDependenciesPosition();
+    setIsWebCoreActionsOpen(false);
+    setIsRuntimeDependenciesOpen(true);
+  }, [updateRuntimeDependenciesPosition]);
+
+  const closeRuntimeDependencies = useCallback(() => {
+    setIsRuntimeDependenciesOpen(false);
+  }, []);
+
+  const toggleRuntimeDependencies = useCallback(() => {
+    if (isRuntimeDependenciesOpen) {
+      setIsRuntimeDependenciesOpen(false);
+      return;
+    }
+
+    openRuntimeDependencies();
+  }, [isRuntimeDependenciesOpen, openRuntimeDependencies]);
+
   const updateWebCoreActionsPosition = useCallback(() => {
     if (!webCoreActionsButtonRef.current) {
       return;
@@ -1581,6 +1901,7 @@ export function PlaygroundShell() {
 
   const openWebCoreActions = useCallback(() => {
     updateWebCoreActionsPosition();
+    setIsRuntimeDependenciesOpen(false);
     setIsWebCoreActionsOpen(true);
   }, [updateWebCoreActionsPosition]);
 
@@ -1678,6 +1999,32 @@ export function PlaygroundShell() {
   }, [activeLang, hasRun, htmlWorkspace]);
 
   useEffect(() => {
+    if (!isRuntimeDependenciesOpen) {
+      return;
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsRuntimeDependenciesOpen(false);
+      }
+    };
+
+    const handleViewportChange = () => {
+      updateRuntimeDependenciesPosition();
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [isRuntimeDependenciesOpen, updateRuntimeDependenciesPosition]);
+
+  useEffect(() => {
     if (!isWebCoreActionsOpen) {
       return;
     }
@@ -1705,12 +2052,34 @@ export function PlaygroundShell() {
 
   const handleRun = async () => {
     const src = activeLang === "html" ? buildHtmlPreviewDocument(htmlWorkspace) : codes[activeLang];
+    const runtimeDependenciesForRun =
+      remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage
+        ? mergeManagedDependenciesWithDetectedImports(activeRuntimeLanguage, runtimeDependencies[activeRuntimeLanguage], src)
+        : [];
+    const currentRuntimeDependencySignature =
+      remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage
+        ? runtimeDependencies[activeRuntimeLanguage].map((dependency) => dependency.specifier).join("\u0001")
+        : "";
+    const nextRuntimeDependencySignature = runtimeDependenciesForRun
+      .map((dependency) => dependency.specifier)
+      .join("\u0001");
     const remoteExecutionCacheKey = remoteExecutionLanguages.includes(activeLang)
-      ? buildRemoteExecutionCacheKey(activeLang, src, inputStr)
+      ? buildRemoteExecutionCacheKey(activeLang, src, inputStr, runtimeDependenciesForRun)
       : null;
     const cachedRemoteExecution = remoteExecutionCacheKey
       ? localExecutionCacheRef.current.get(remoteExecutionCacheKey)
       : null;
+
+    if (
+      remoteExecutionLanguages.includes(activeLang) &&
+      activeRuntimeLanguage &&
+      nextRuntimeDependencySignature !== currentRuntimeDependencySignature
+    ) {
+      setRuntimeDependencies((current) => ({
+        ...current,
+        [activeRuntimeLanguage]: runtimeDependenciesForRun,
+      }));
+    }
 
     setHasRun(false);
     setActiveTab("output");
@@ -1739,7 +2108,9 @@ export function PlaygroundShell() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            dependencies: runtimeDependenciesForRun.map((dependency) => dependency.specifier),
             language: lang.engineLanguage ?? activeLang,
+            mainFile: lang.filename,
             code: src,
             stdin: inputStr,
           }),
@@ -1948,6 +2319,147 @@ export function PlaygroundShell() {
       ref={playgroundRootRef}
       className="relative flex h-full w-full flex-col overflow-hidden bg-[#020202] font-sans tracking-tight text-white"
     >
+      {remoteExecutionLanguages.includes(activeLang) &&
+      activeRuntimeLanguage &&
+      isRuntimeDependenciesOpen &&
+      runtimeDependenciesPosition ? (
+        <div className="fixed inset-0 z-40 bg-[#020202]/84 backdrop-blur-[3px]" onClick={closeRuntimeDependencies}>
+          <div
+            className="absolute flex w-[380px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-[28px] border border-white/10 bg-[#09090d]/97 shadow-[0_30px_120px_rgba(0,0,0,0.58)]"
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              left: `${runtimeDependenciesPosition.left}px`,
+              maxHeight: `calc(100vh - ${Math.max(24, runtimeDependenciesPosition.top + 24)}px)`,
+              top: `${runtimeDependenciesPosition.top}px`,
+            }}
+          >
+            <div className="border-b border-white/8 px-4 py-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Imports</p>
+                  <p className="mt-1 text-[13px] font-semibold text-white">{lang.label} setup</p>
+                  <p className="mt-1 max-w-[260px] text-[11px] leading-relaxed text-zinc-400">{getRuntimeDependencyHint(activeRuntimeLanguage)}</p>
+                </div>
+                <button
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-zinc-400 transition-colors duration-300 hover:border-white/20 hover:text-white"
+                  onClick={closeRuntimeDependencies}
+                  type="button"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4">
+              <div className="space-y-5 pr-1">
+                <section className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Managed dependencies</p>
+                    {canManuallyManageRuntimeDependencies(activeRuntimeLanguage) ? (
+                      <button
+                        className="inline-flex items-center gap-1 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-2.5 py-1 text-[10px] font-semibold text-emerald-100 transition-all duration-300 hover:border-emerald-300/25 hover:bg-emerald-400/10"
+                        onClick={addRuntimeDependency}
+                        type="button"
+                      >
+                        <Plus className="h-3 w-3" />
+                        Add
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {syncedRuntimeDependencies.length > 0 ? (
+                    <div className="space-y-1">
+                      {syncedRuntimeDependencies.map((dependency) => (
+                        <div
+                          key={dependency.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] font-semibold text-white">{dependency.name}</p>
+                            <p className="truncate text-[10px] text-zinc-500">{dependency.specifier}</p>
+                          </div>
+                          <button
+                            className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 transition-colors duration-300 hover:text-rose-200"
+                            onClick={() => removeRuntimeDependency(dependency.id)}
+                            type="button"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-3 text-[11px] leading-relaxed text-zinc-500">
+                      No managed dependencies yet. CodeOrbit can auto-link many imports on the next run, and you can pin package names here when you want more control.
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3 px-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Detected imports</p>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                      {detectedRuntimeImports.length} found
+                    </span>
+                  </div>
+
+                  {detectedRuntimeImports.length > 0 ? (
+                    <div className="space-y-1">
+                      {detectedRuntimeImports.map((detectedImport) => {
+                        const isLinked = linkedRuntimeDependencySpecifiers.has(
+                          normalizeManagedDependencySpecifier(activeRuntimeLanguage, detectedImport.packageName),
+                        );
+
+                        return (
+                          <div
+                            key={`${detectedImport.kind}:${detectedImport.specifier}`}
+                            className="flex items-center justify-between gap-3 rounded-xl px-3 py-2 transition-all duration-300 hover:bg-white/[0.04]"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-[12px] font-semibold text-white">{detectedImport.label}</p>
+                              <p className="truncate text-[10px] text-zinc-500">{detectedImport.detail}</p>
+                            </div>
+                            {detectedImport.canAutoAdd ? (
+                              isLinked ? (
+                                <span className="shrink-0 rounded-full border border-emerald-400/20 bg-emerald-400/8 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-100">
+                                  Linked
+                                </span>
+                              ) : (
+                                <button
+                                  className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-300 transition-colors duration-300 hover:border-emerald-300/25 hover:text-emerald-100"
+                                  onClick={() => linkDetectedRuntimeImport(detectedImport)}
+                                  type="button"
+                                >
+                                  Add
+                                </button>
+                              )
+                            ) : (
+                              <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-600">
+                                {detectedImport.kind}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-3 py-3 text-[11px] leading-relaxed text-zinc-500">
+                      Start typing imports in the editor and they will show up here for quicker linking and cleaner runs.
+                    </div>
+                  )}
+                </section>
+
+                {pendingDetectedRuntimeImports.length > 0 ? (
+                  <section className="rounded-2xl border border-cyan-400/10 bg-cyan-400/5 px-3 py-3 text-[11px] leading-relaxed text-cyan-100">
+                    {pendingDetectedRuntimeImports.length} external import{pendingDetectedRuntimeImports.length === 1 ? "" : "s"} can be auto-linked on the next run.
+                  </section>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {activeLang === "html" && isWebCoreActionsOpen && webCoreActionsPosition ? (
         <div className="fixed inset-0 z-40 bg-[#020202]/84 backdrop-blur-[3px]" onClick={closeWebCoreActions}>
           <div
@@ -1977,6 +2489,33 @@ export function PlaygroundShell() {
 
             <div className="min-h-0 overflow-y-auto overscroll-contain px-4 py-4">
               <div className="space-y-5 pr-1">
+                <section className="space-y-2.5">
+                  <div className="px-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Starter packs</p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    {webCorePresetDefinitions.map((preset) => (
+                      <button
+                        key={preset.id}
+                        className="w-full rounded-2xl border border-white/6 bg-white/[0.02] px-3 py-3 text-left transition-all duration-300 hover:border-cyan-300/20 hover:bg-cyan-400/[0.06]"
+                        onClick={() => runWebCoreAction(() => applyWebCorePreset(preset.id))}
+                        type="button"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-semibold text-white">{preset.label}</p>
+                            <p className="mt-1 text-[10px] leading-relaxed text-zinc-500">{preset.description}</p>
+                          </div>
+                          <span className="shrink-0 rounded-full border border-white/8 bg-white/[0.03] px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+                            Load
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
                 <section className="space-y-2.5">
                   <div className="px-1">
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Main files</p>
@@ -2097,6 +2636,27 @@ export function PlaygroundShell() {
                     <Plus className="h-3.5 w-3.5 text-zinc-400" />
                     Add package
                   </button>
+
+                  <div className="grid gap-2">
+                    {webCoreSuggestedPackages.map((pkg) => (
+                      <button
+                        key={pkg.specifier}
+                        className="w-full rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 text-left transition-all duration-300 hover:border-cyan-300/20 hover:bg-cyan-400/[0.06]"
+                        onClick={() => runWebCoreAction(() => addSuggestedHtmlWorkspacePackage(pkg.specifier))}
+                        type="button"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-semibold text-white">{pkg.label}</p>
+                            <p className="mt-1 truncate text-[10px] text-zinc-500">{pkg.description}</p>
+                          </div>
+                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-cyan-200">
+                            Quick add
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
 
                   {htmlWorkspace.packages.length > 0 ? (
                     <div className="space-y-1">
@@ -2276,6 +2836,20 @@ export function PlaygroundShell() {
               </div>
             ) : null}
 
+            {remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage ? (
+              <button
+                ref={runtimeDependenciesButtonRef}
+                className="inline-flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-1.5 text-[10px] font-semibold text-emerald-100 transition-all duration-300 hover:border-emerald-300/25 hover:bg-emerald-400/10"
+                onClick={toggleRuntimeDependencies}
+                type="button"
+              >
+                Imports & Setup
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-300 ${isRuntimeDependenciesOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            ) : null}
+
             {activeLang === "html" ? (
               <button
                 ref={webCoreActionsButtonRef}
@@ -2283,7 +2857,7 @@ export function PlaygroundShell() {
                 onClick={toggleWebCoreActions}
                 type="button"
               >
-                Files & Packages
+                Frontend Workspace
                 <ChevronDown
                   className={`h-3.5 w-3.5 transition-transform duration-300 ${isWebCoreActionsOpen ? "rotate-180" : ""}`}
                 />
@@ -2294,7 +2868,15 @@ export function PlaygroundShell() {
           {activeLang === "javascript" ? (
             <div className="hidden flex-shrink-0 items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/5 px-3 py-1.5 2xl:flex">
               <span className="text-[11px] font-medium text-cyan-200">
-                JavaScript runs in Node. prompt() and input() read from the Input tab, and WebCore handles DOM code plus browser packages.
+                JavaScript runs in Node. Imports & Setup manages server-side packages, and WebCore still handles DOM code plus browser packages.
+              </span>
+            </div>
+          ) : null}
+
+          {activeLang === "html" ? (
+            <div className="hidden flex-shrink-0 items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-1.5 2xl:flex">
+              <span className="text-[11px] font-medium text-emerald-100">
+                WebCore is your frontend workspace for React, Three.js, charts, Supabase, and import-heavy browser projects.
               </span>
             </div>
           ) : null}

@@ -725,18 +725,90 @@ function buildWebCorePackageDeclarations(packages: PlaygroundMonacoWorkspacePack
   }
 
   return packages
-    .map((pkg) =>
-      [
-        `declare module "${pkg.name}" {`,
-        "  const mod: any;",
-        "  export default mod;",
-        "}",
-        `declare module "${pkg.name}/*" {`,
-        "  const mod: any;",
-        "  export default mod;",
-        "}",
-      ].join("\n"),
-    )
+    .map((pkg) => {
+      switch (pkg.name) {
+        case "react":
+          return [
+            'declare module "react" {',
+            "  const React: any;",
+            "  export default React;",
+            "  export const Fragment: any;",
+            "  export const Suspense: any;",
+            "  export const createElement: any;",
+            "  export const useEffect: any;",
+            "  export const useMemo: any;",
+            "  export const useRef: any;",
+            "  export const useState: any;",
+            "}",
+          ].join("\n");
+        case "react-dom":
+          return [
+            'declare module "react-dom" {',
+            "  const ReactDOM: any;",
+            "  export default ReactDOM;",
+            "}",
+            'declare module "react-dom/client" {',
+            "  export const createRoot: any;",
+            "}",
+          ].join("\n");
+        case "htm":
+          return [
+            'declare module "htm" {',
+            "  const htm: { bind(target: any): any };",
+            "  export default htm;",
+            "}",
+          ].join("\n");
+        case "three":
+          return [
+            'declare module "three" {',
+            "  const THREE: any;",
+            "  export = THREE;",
+            "}",
+          ].join("\n");
+        case "chart.js":
+          return [
+            'declare module "chart.js" {',
+            "  const ChartJs: any;",
+            "  export default ChartJs;",
+            "}",
+            'declare module "chart.js/auto" {',
+            "  const Chart: any;",
+            "  export default Chart;",
+            "}",
+          ].join("\n");
+        case "@supabase/supabase-js":
+          return [
+            'declare module "@supabase/supabase-js" {',
+            "  export const createClient: any;",
+            "}",
+          ].join("\n");
+        case "gsap":
+          return [
+            'declare module "gsap" {',
+            "  export const gsap: any;",
+            "  export default gsap;",
+            "}",
+          ].join("\n");
+        case "zod":
+          return [
+            'declare module "zod" {',
+            "  export const z: any;",
+            "  export default z;",
+            "}",
+          ].join("\n");
+        default:
+          return [
+            `declare module "${pkg.name}" {`,
+            "  const mod: any;",
+            "  export default mod;",
+            "}",
+            `declare module "${pkg.name}/*" {`,
+            "  const mod: any;",
+            "  export default mod;",
+            "}",
+          ].join("\n");
+      }
+    })
     .join("\n\n");
 }
 

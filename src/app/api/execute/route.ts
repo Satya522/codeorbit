@@ -11,9 +11,18 @@ import {
   prepareJavaScriptForExecution,
 } from "@/lib/playgroundJavascriptRuntime";
 
+const executionFileSchema = z.object({
+  content: z.string().trim().min(1).max(20_000),
+  name: z.string().trim().min(1).max(120).optional(),
+});
+
 const executeRequestSchema = z.object({
   code: z.string().trim().min(1).max(20_000),
+  compileArgs: z.array(z.string().trim().min(1).max(64)).max(12).optional().default([]),
+  dependencies: z.array(z.string().trim().min(1).max(200)).max(16).optional().default([]),
+  files: z.array(executionFileSchema).max(12).optional().default([]),
   language: z.enum(["cpp", "go", "java", "javascript", "python"]).default("javascript"),
+  mainFile: z.string().trim().min(1).max(120).optional(),
   stdin: z.string().max(4_000).optional().default(""),
   warmup: z.boolean().optional().default(false),
 });
@@ -55,6 +64,8 @@ type EngineExecutionResult = {
   result: PistonResponse;
 };
 
+type ExecutionRequestFile = z.infer<typeof executionFileSchema>;
+
 const executionResultCache = new Map<string, CachedExecutionResult>();
 const engineCooldowns = new Map<string, number>();
 const preferredExecutionEngineByLanguage = new Map<string, string>();
@@ -68,13 +79,27 @@ function getConfiguredPistonEndpoints() {
   return configuredEndpoints.length > 0 ? configuredEndpoints : DEFAULT_PISTON_ENDPOINTS;
 }
 
-function getExecutionCacheKey(language: string, code: string, stdin: string) {
+function getExecutionCacheKey(payload: {
+  code: string;
+  compileArgs: string[];
+  dependencies: string[];
+  files: ExecutionRequestFile[];
+  language: string;
+  mainFile?: string;
+  stdin: string;
+}) {
   return createHash("sha256")
-    .update(language)
-    .update("\u0000")
-    .update(stdin)
-    .update("\u0000")
-    .update(code)
+    .update(
+      JSON.stringify({
+        code: payload.code,
+        compileArgs: payload.compileArgs,
+        dependencies: payload.dependencies,
+        files: payload.files,
+        language: payload.language,
+        mainFile: payload.mainFile,
+        stdin: payload.stdin,
+      }),
+    )
     .digest("hex");
 }
 
@@ -149,11 +174,58 @@ function markEngineFailure(engineUrl: string) {
   engineCooldowns.set(engineUrl, Date.now() + ENGINE_FAILURE_COOLDOWN_MS);
 }
 
-function buildPistonPayload(language: string, code: string, stdin: string) {
+function buildExecutionFiles(
+  files: ExecutionRequestFile[],
+  preparedCode: string,
+  mainFile?: string,
+) {
+  if (files.length === 0) {
+    return [
+      {
+        content: preparedCode,
+        ...(mainFile ? { name: mainFile } : {}),
+      },
+    ];
+  }
+
+  let replacedMainFile = false;
+  const nextFiles = files.map((file, index) => {
+    const isMainFile = mainFile ? file.name === mainFile : index === 0;
+
+    if (!isMainFile) {
+      return file.name ? { content: file.content, name: file.name } : { content: file.content };
+    }
+
+    replacedMainFile = true;
+    return file.name ? { content: preparedCode, name: file.name } : { content: preparedCode };
+  });
+
+  if (!replacedMainFile) {
+    nextFiles.unshift({
+      content: preparedCode,
+      ...(mainFile ? { name: mainFile } : {}),
+    });
+  }
+
+  return nextFiles;
+}
+
+function buildPistonPayload(input: {
+  compileArgs: string[];
+  dependencies: string[];
+  files: ExecutionRequestFile[];
+  language: string;
+  mainFile?: string;
+  preparedCode: string;
+  stdin: string;
+}) {
   return {
-    files: [{ content: code }],
-    language,
-    stdin,
+    ...(input.compileArgs.length > 0 ? { compileArgs: input.compileArgs } : {}),
+    ...(input.dependencies.length > 0 ? { dependencies: input.dependencies } : {}),
+    files: buildExecutionFiles(input.files, input.preparedCode, input.mainFile),
+    language: input.language,
+    ...(input.mainFile ? { mainFile: input.mainFile } : {}),
+    stdin: input.stdin,
     version: "*",
   };
 }
@@ -259,7 +331,7 @@ export async function POST(req: Request) {
   }
 
   const headers = buildRateLimitHeaders(access.rateLimit);
-  const { code, language, stdin, warmup } = bodyResult.data;
+  const { code, compileArgs, dependencies, files, language, mainFile, stdin, warmup } = bodyResult.data;
   const unsupportedJavaScriptApi =
     language === "javascript" ? getUnsupportedJavaScriptBrowserApi(code) : null;
   const preparedCode =
@@ -280,7 +352,15 @@ export async function POST(req: Request) {
     );
   }
 
-  const executionCacheKey = getExecutionCacheKey(language, preparedCode, stdin);
+  const executionCacheKey = getExecutionCacheKey({
+    code: preparedCode,
+    compileArgs,
+    dependencies,
+    files,
+    language,
+    mainFile,
+    stdin,
+  });
 
   if (!warmup) {
     const cachedResult = readCachedExecutionResult(executionCacheKey);
@@ -297,7 +377,15 @@ export async function POST(req: Request) {
     }
   }
 
-  const payload = buildPistonPayload(language, preparedCode, stdin);
+  const payload = buildPistonPayload({
+    compileArgs,
+    dependencies,
+    files,
+    language,
+    mainFile,
+    preparedCode,
+    stdin,
+  });
   const executionResult = await executeWithPreferredEngine(language, payload);
   const result = executionResult?.result ?? null;
 

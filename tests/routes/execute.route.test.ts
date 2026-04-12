@@ -115,4 +115,53 @@ describe("POST /api/execute", () => {
       output: "Hello CodeOrbit\n",
     });
   });
+
+  it("forwards managed dependency metadata to the execution engine", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          run: {
+            stdout: "dependency ok\n",
+          },
+        }),
+        {
+          headers: {
+            "content-type": "application/json",
+          },
+          status: 200,
+        },
+      ),
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { POST } = await loadRoute();
+    const response = await POST(
+      new Request("http://localhost/api/execute", {
+        body: JSON.stringify({
+          code: 'import axios from "axios";\nconsole.log("ok");',
+          dependencies: ["axios"],
+          language: "javascript",
+          mainFile: "main.js",
+        }),
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const fetchBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(fetchBody).toMatchObject({
+      dependencies: ["axios"],
+      language: "javascript",
+      mainFile: "main.js",
+    });
+    expect(fetchBody.files).toEqual([
+      {
+        content: expect.stringContaining('import axios from "axios";'),
+        name: "main.js",
+      },
+    ]);
+  });
 });
