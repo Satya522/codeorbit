@@ -1,3 +1,5 @@
+import ts from "typescript";
+
 export type WebCoreBaseFileNames = {
   markup: string;
   script: string;
@@ -12,6 +14,15 @@ export type WebCoreBaseFileState = {
 export type WebCoreWorkspacePackageRef = {
   name: string;
   specifier: string;
+};
+
+export type WebCoreScriptKind = "javascript" | "jsx" | "typescript" | "tsx";
+
+export type WebCoreScriptModuleInput = {
+  content: string;
+  entry: boolean;
+  kind: WebCoreScriptKind;
+  name: string;
 };
 
 const defaultStyles = `:root {
@@ -102,6 +113,8 @@ const knownCssPackageEntryPoints: Record<string, string> = {
   "@picocss/pico": "css/pico.min.css",
 };
 
+const webCoreScriptExtensions = [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"];
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -153,6 +166,10 @@ export function buildDefaultWebCoreScript() {
   return defaultScript;
 }
 
+export function isWebCoreModuleScriptKind(kind: string): kind is WebCoreScriptKind {
+  return kind === "javascript" || kind === "jsx" || kind === "typescript" || kind === "tsx";
+}
+
 export function ensureWebCoreBaseLinks(
   markup: string,
   fileNames: WebCoreBaseFileNames,
@@ -177,7 +194,7 @@ export function ensureWebCoreBaseLinks(
   return nextMarkup;
 }
 
-export function inlineLinkedStylesheet(markup: string, fileName: string, content: string) {
+export function inlineLinkedStylesheet(markup: string, fileName: string, content: string, attributes = "") {
   const escaped = escapeRegExp(fileName);
   const pattern = new RegExp(`<link[^>]*href=["'](?:\\./)?${escaped}["'][^>]*>`, "i");
 
@@ -186,7 +203,7 @@ export function inlineLinkedStylesheet(markup: string, fileName: string, content
   }
 
   return {
-    markup: markup.replace(pattern, `<style data-codeorbit-file="${fileName}">\n${content}\n</style>`),
+    markup: markup.replace(pattern, `<style${attributes} data-codeorbit-file="${fileName}">\n${content}\n</style>`),
     replaced: true,
   };
 }
@@ -287,4 +304,176 @@ export function resolveWebCoreCssPackageImports(css: string, packages: WebCoreWo
       return `@import url("${resolvedTarget}")${suffix};`;
     },
   );
+}
+
+export function shouldUseTailwindBrowserRuntime(css: string, packages: WebCoreWorkspacePackageRef[]) {
+  return (
+    /@import\s+(?:url\(\s*)?["']tailwindcss["']/i.test(css) ||
+    /@(theme|utility|variant|source|custom-variant)\b/i.test(css) ||
+    packages.some((pkg) => pkg.name === "@tailwindcss/browser")
+  );
+}
+
+function normalizeModulePath(value: string) {
+  const nextSegments: string[] = [];
+
+  for (const segment of value.replace(/\\/g, "/").split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+
+    if (segment === "..") {
+      nextSegments.pop();
+      continue;
+    }
+
+    nextSegments.push(segment);
+  }
+
+  return nextSegments.join("/");
+}
+
+function dirnameModulePath(value: string) {
+  const normalized = normalizeModulePath(value);
+  const segments = normalized.split("/");
+  segments.pop();
+  return segments.join("/");
+}
+
+function resolveRelativeModulePath(fromName: string, specifier: string) {
+  if (specifier.startsWith("/")) {
+    return normalizeModulePath(specifier);
+  }
+
+  const baseDir = dirnameModulePath(fromName);
+  return normalizeModulePath(baseDir ? `${baseDir}/${specifier}` : specifier);
+}
+
+function buildWebCoreVirtualModuleSpecifier(fileName: string) {
+  return `/__codeorbit__/${normalizeModulePath(fileName)}`;
+}
+
+function detectModuleSyntax(code: string) {
+  return /\bimport\s+.+from\s+['"]|^\s*import\s+['"]|^\s*export\s+|\bimport\(\s*['"]/m.test(code);
+}
+
+function needsTranspile(kind: WebCoreScriptKind) {
+  return kind === "jsx" || kind === "typescript" || kind === "tsx";
+}
+
+function transpileWebCoreModule(module: WebCoreScriptModuleInput) {
+  if (!needsTranspile(module.kind)) {
+    return module.content;
+  }
+
+  const scriptKind =
+    module.kind === "jsx"
+      ? ts.ScriptKind.JSX
+      : module.kind === "tsx"
+        ? ts.ScriptKind.TSX
+        : ts.ScriptKind.TS;
+
+  return ts.transpileModule(module.content, {
+    compilerOptions: {
+      jsx: module.kind === "jsx" || module.kind === "tsx" ? ts.JsxEmit.ReactJSX : undefined,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      useDefineForClassFields: false,
+    },
+    fileName: module.name,
+    reportDiagnostics: false,
+    transformers: undefined,
+  }).outputText;
+}
+
+function findLocalModuleTarget(
+  fromName: string,
+  specifier: string,
+  moduleNames: Set<string>,
+) {
+  if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+    return null;
+  }
+
+  const resolvedPath = resolveRelativeModulePath(fromName, specifier);
+  if (moduleNames.has(resolvedPath)) {
+    return resolvedPath;
+  }
+
+  if (!/\.[A-Za-z0-9]+$/.test(resolvedPath)) {
+    for (const extension of webCoreScriptExtensions) {
+      const candidate = `${resolvedPath}${extension}`;
+      if (moduleNames.has(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+function rewriteWebCoreLocalImports(
+  code: string,
+  module: WebCoreScriptModuleInput,
+  moduleNames: Set<string>,
+) {
+  const rewriteTarget = (target: string) => {
+    const localTarget = findLocalModuleTarget(module.name, target, moduleNames);
+    return localTarget ? buildWebCoreVirtualModuleSpecifier(localTarget) : target;
+  };
+
+  const staticImportRewriter = (
+    _match: string,
+    prefix: string,
+    quote: string,
+    target: string,
+    suffix: string,
+  ) => `${prefix}${quote}${rewriteTarget(target)}${quote}${suffix}`;
+
+  const dynamicImportRewriter = (_match: string, quote: string, target: string, suffix: string) =>
+    `import(${quote}${rewriteTarget(target)}${quote}${suffix}`;
+
+  return code
+    .replace(/(\bfrom\s+)(["'])([^"']+)(["'])/g, staticImportRewriter)
+    .replace(/(^\s*import\s+)(["'])([^"']+)(["'])/gm, staticImportRewriter)
+    .replace(/(\bimport\(\s*)(["'])([^"']+)(["'][^)]+\))/g, dynamicImportRewriter)
+    .replace(/(\bimport\(\s*)(["'])([^"']+)(["']\s*\))/g, dynamicImportRewriter);
+}
+
+function buildJavascriptDataUrl(code: string) {
+  return `data:text/javascript;charset=utf-8,${encodeURIComponent(code)}`;
+}
+
+export function shouldUseWebCoreModulePipeline(
+  modules: Pick<WebCoreScriptModuleInput, "content" | "kind">[],
+  packages: WebCoreWorkspacePackageRef[],
+) {
+  return packages.length > 0 || modules.some((module) => needsTranspile(module.kind) || detectModuleSyntax(module.content));
+}
+
+export function buildWebCoreModuleImportMap(modules: WebCoreScriptModuleInput[]) {
+  const normalizedModules = modules.map((module) => ({
+    ...module,
+    name: normalizeModulePath(module.name),
+  }));
+  const moduleNames = new Set(normalizedModules.map((module) => module.name));
+  const imports: Record<string, string> = {};
+  const entrySpecifiers: string[] = [];
+
+  for (const module of normalizedModules) {
+    const transpiledCode = transpileWebCoreModule(module);
+    const rewrittenCode = rewriteWebCoreLocalImports(transpiledCode, module, moduleNames);
+    const specifier = buildWebCoreVirtualModuleSpecifier(module.name);
+
+    imports[specifier] = buildJavascriptDataUrl(rewrittenCode);
+
+    if (module.entry) {
+      entrySpecifiers.push(specifier);
+    }
+  }
+
+  return {
+    entrySpecifiers,
+    imports,
+  };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildWebCoreModuleImportMap,
   buildDefaultWebCoreMarkup,
   buildDefaultWebCoreScript,
   buildDefaultWebCoreStyles,
@@ -11,6 +12,7 @@ import {
   resolveWebCoreCssPackageImports,
   removeLinkedScript,
   removeLinkedStylesheet,
+  shouldUseTailwindBrowserRuntime,
 } from "@/lib/webcoreWorkspace";
 
 const fileNames = {
@@ -94,5 +96,38 @@ body { color: white; }`;
     expect(resolved).toContain('https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css');
     expect(resolved).toContain('https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css');
     expect(resolved).toContain('https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap-grid.min.css');
+  });
+
+  it('detects when the Tailwind browser runtime should boot', () => {
+    expect(shouldUseTailwindBrowserRuntime('@import "tailwindcss";', [])).toBe(true);
+    expect(shouldUseTailwindBrowserRuntime("@theme { --color-brand: #38bdf8; }", [])).toBe(true);
+    expect(shouldUseTailwindBrowserRuntime("body { color: white; }", [])).toBe(false);
+  });
+
+  it("builds a local module import map for TSX and rewrites relative imports", () => {
+    const moduleMap = buildWebCoreModuleImportMap([
+      {
+        content: 'import { Hero } from "./Hero";\nconsole.log(Hero);',
+        entry: true,
+        kind: "typescript",
+        name: "script.ts",
+      },
+      {
+        content: `type HeroProps = { title: string };\n\nexport function Hero({ title }: HeroProps) {\n  return <section>{title}</section>;\n}`,
+        entry: false,
+        kind: "tsx",
+        name: "Hero.tsx",
+      },
+    ]);
+
+    expect(moduleMap.entrySpecifiers).toEqual(["/__codeorbit__/script.ts"]);
+    expect(moduleMap.imports["/__codeorbit__/Hero.tsx"]).toBeTruthy();
+
+    const decodedEntry = decodeURIComponent(moduleMap.imports["/__codeorbit__/script.ts"].split(",", 2)[1] ?? "");
+    const decodedTsx = decodeURIComponent(moduleMap.imports["/__codeorbit__/Hero.tsx"].split(",", 2)[1] ?? "");
+
+    expect(decodedEntry).toContain('from "/__codeorbit__/Hero.tsx"');
+    expect(decodedTsx).toContain('from "react/jsx-runtime"');
+    expect(decodedTsx).not.toContain("HeroProps");
   });
 });

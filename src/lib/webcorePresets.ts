@@ -1,5 +1,6 @@
 export type WebCorePresetId =
   | "vanilla-landing"
+  | "tailwind-ui"
   | "react-ui"
   | "three-scene"
   | "chart-dashboard"
@@ -421,8 +422,83 @@ function App() {
 const root = document.getElementById("root");
 
 if (root) {
-  createRoot(root).render(h(App));
+      createRoot(root).render(h(App));
 }`,
+  },
+  {
+    id: "tailwind-ui",
+    label: "Tailwind UI",
+    description: "A compact Tailwind starter for polished frontend sections without setting up a local build chain.",
+    packages: [{ name: "tailwindcss", specifier: "tailwindcss@4" }],
+    markup: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CodeOrbit Tailwind UI</title>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <main class="mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-16">
+      <section class="grid w-full gap-6 rounded-[2rem] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-cyan-950/30 backdrop-blur xl:grid-cols-[1.2fr_0.8fr]">
+        <div class="space-y-6">
+          <span class="inline-flex rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">
+            WebCore Tailwind
+          </span>
+          <div class="space-y-4">
+            <h1 class="max-w-2xl text-4xl font-black tracking-tight text-white sm:text-6xl">
+              Build frontend sections fast, then keep shaping the details.
+            </h1>
+            <p class="max-w-xl text-sm leading-7 text-slate-300 sm:text-base">
+              This preset uses the Tailwind browser runtime, so classes, theme tokens, and layout tweaks show up instantly in preview.
+            </p>
+          </div>
+          <div class="flex flex-wrap gap-3">
+            <button id="tailwindAction" type="button" class="rounded-full bg-cyan-300 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-200">
+              Toggle highlight
+            </button>
+            <button type="button" class="rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-cyan-300/40 hover:text-white">
+              Open sections
+            </button>
+          </div>
+        </div>
+        <div id="tailwindCard" class="rounded-[1.6rem] border border-white/10 bg-slate-900/80 p-6 transition duration-300">
+          <p class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">Preview Card</p>
+          <div class="mt-5 space-y-4">
+            <div class="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <p class="text-sm font-semibold text-white">Classes stay live</p>
+              <p class="mt-2 text-sm leading-6 text-slate-300">Edit Tailwind utilities in HTML or add custom tokens in style.css.</p>
+            </div>
+            <div class="rounded-2xl border border-cyan-400/20 bg-cyan-400/10 p-4 text-sm leading-6 text-cyan-100">
+              Start with <code>@import "tailwindcss";</code> and keep the rest small.
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`,
+    styles: `@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+body {
+  font-family: var(--font-display);
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.18), transparent 26%),
+    radial-gradient(circle at bottom right, rgba(59, 130, 246, 0.16), transparent 28%),
+    #020617;
+}`,
+    script: `const tailwindAction = document.getElementById("tailwindAction");
+const tailwindCard = document.getElementById("tailwindCard");
+
+tailwindAction?.addEventListener("click", () => {
+  tailwindCard?.classList.toggle("ring-2");
+  tailwindCard?.classList.toggle("ring-cyan-300");
+  tailwindCard?.classList.toggle("bg-slate-900");
+  tailwindCard?.classList.toggle("bg-cyan-300/10");
+});`,
   },
   {
     id: "three-scene",
@@ -934,6 +1010,11 @@ const webCoreSuggestedPackages: WebCoreSuggestedPackage[] = [
     label: "Bootstrap CSS",
     specifier: "bootstrap@5.3.3",
     description: 'Use @import "bootstrap"; inside style.css for a fast UI baseline',
+  },
+  {
+    label: "Tailwind CSS",
+    specifier: "tailwindcss@4",
+    description: 'Use @import "tailwindcss"; and WebCore will load the browser runtime for you',
   },
   {
     label: "Animate.css",

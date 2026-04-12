@@ -49,17 +49,22 @@ import {
   type WebCorePresetPackage,
 } from "@/lib/webcorePresets";
 import {
+  buildWebCoreModuleImportMap,
   buildDefaultWebCoreMarkup,
   buildDefaultWebCoreScript,
   buildDefaultWebCoreStyles,
   ensureWebCoreBaseLinks,
   inlineLinkedScript,
   inlineLinkedStylesheet,
+  isWebCoreModuleScriptKind,
   renameLinkedScript,
   renameLinkedStylesheet,
   resolveWebCoreCssPackageImports,
   removeLinkedScript,
   removeLinkedStylesheet,
+  shouldUseTailwindBrowserRuntime,
+  shouldUseWebCoreModulePipeline,
+  type WebCoreScriptKind,
 } from "@/lib/webcoreWorkspace";
 import type { SqlResultTable } from "@/lib/sqlRunner";
 import { Group, Panel, Separator } from "react-resizable-panels";
@@ -90,7 +95,7 @@ type SandboxFontOption = {
 };
 
 type HtmlWorkspaceFileId = "markup" | "styles" | "script";
-type HtmlWorkspaceCustomKind = "html" | "css" | "javascript";
+type HtmlWorkspaceCustomKind = "html" | "css" | WebCoreScriptKind;
 
 type HtmlWorkspaceCustomFile = {
   id: string;
@@ -471,10 +476,18 @@ function isHtmlWorkspaceFileId(value: string): value is HtmlWorkspaceFileId {
 }
 
 function isHtmlWorkspaceCustomKind(value: string): value is HtmlWorkspaceCustomKind {
-  return value === "html" || value === "css" || value === "javascript";
+  return value === "html" || value === "css" || isWebCoreModuleScriptKind(value);
 }
 
-function getHtmlWorkspaceKindFromBaseFileId(fileId: HtmlWorkspaceFileId): HtmlWorkspaceCustomKind {
+function getHtmlWorkspaceScriptKindFromFileName(fileName: string): WebCoreScriptKind {
+  const inferredKind = inferHtmlWorkspaceCustomKind(fileName, "javascript");
+  return isWebCoreModuleScriptKind(inferredKind) ? inferredKind : "javascript";
+}
+
+function getHtmlWorkspaceKindFromBaseFileId(
+  fileId: HtmlWorkspaceFileId,
+  fileNames: Record<HtmlWorkspaceFileId, string>,
+): HtmlWorkspaceCustomKind {
   if (fileId === "markup") {
     return "html";
   }
@@ -483,31 +496,38 @@ function getHtmlWorkspaceKindFromBaseFileId(fileId: HtmlWorkspaceFileId): HtmlWo
     return "css";
   }
 
-  return "javascript";
+  return getHtmlWorkspaceScriptKindFromFileName(fileNames.script);
 }
 
 function getHtmlWorkspaceFileExtension(kind: HtmlWorkspaceCustomKind) {
-  if (kind === "html") {
-    return "html";
+  switch (kind) {
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "jsx":
+      return "jsx";
+    case "typescript":
+      return "ts";
+    case "tsx":
+      return "tsx";
+    default:
+      return "js";
   }
-
-  if (kind === "css") {
-    return "css";
-  }
-
-  return "js";
 }
 
 function getHtmlWorkspaceMonacoLanguage(kind: HtmlWorkspaceCustomKind) {
-  if (kind === "html") {
-    return "html";
+  switch (kind) {
+    case "html":
+      return "html";
+    case "css":
+      return "css";
+    case "typescript":
+    case "tsx":
+      return "typescript";
+    default:
+      return "javascript";
   }
-
-  if (kind === "css") {
-    return "css";
-  }
-
-  return "javascript";
 }
 
 function inferHtmlWorkspaceCustomKind(fileName: string, fallback: HtmlWorkspaceCustomKind): HtmlWorkspaceCustomKind {
@@ -519,6 +539,18 @@ function inferHtmlWorkspaceCustomKind(fileName: string, fallback: HtmlWorkspaceC
 
   if (normalizedName.endsWith(".css")) {
     return "css";
+  }
+
+  if (normalizedName.endsWith(".tsx")) {
+    return "tsx";
+  }
+
+  if (normalizedName.endsWith(".ts")) {
+    return "typescript";
+  }
+
+  if (normalizedName.endsWith(".jsx")) {
+    return "jsx";
   }
 
   if (normalizedName.endsWith(".js") || normalizedName.endsWith(".mjs") || normalizedName.endsWith(".cjs")) {
@@ -540,6 +572,30 @@ function buildHtmlWorkspaceCustomStarter(kind: HtmlWorkspaceCustomKind) {
     return `.custom-block {
   padding: 16px;
   border-radius: 16px;
+}`;
+  }
+
+  if (kind === "jsx") {
+    return `export function PromoCard() {
+  return <section className="custom-block">JSX file ready.</section>;
+}`;
+  }
+
+  if (kind === "typescript") {
+    return `export function formatLabel(label: string) {
+  return \`\${label} ready\`;
+}
+
+console.log(formatLabel("TypeScript file"));`;
+  }
+
+  if (kind === "tsx") {
+    return `type PromoCardProps = {
+  title: string;
+};
+
+export function PromoCard({ title }: PromoCardProps) {
+  return <section className="custom-block">{title}</section>;
 }`;
   }
 
@@ -766,18 +822,18 @@ function buildStoredHtmlWorkspace(raw: unknown, fallbackMarkup?: string): HtmlWo
 
 function normalizeHtmlWorkspaceFileName(fileId: HtmlWorkspaceFileId, value: string) {
   const expectedName = htmlWorkspaceFiles[fileId].filename;
-  const extension = expectedName.split(".").pop() ?? "";
   const sanitizedValue = value.trim().replace(/[\\/:*?"<>|]+/g, "-");
 
   if (!sanitizedValue) {
     return expectedName;
   }
 
-  if (sanitizedValue.toLowerCase().endsWith(`.${extension}`)) {
-    return sanitizedValue;
+  if (fileId === "script") {
+    return /\.(?:js|jsx|ts|tsx|mjs|cjs)$/i.test(sanitizedValue) ? sanitizedValue : `${sanitizedValue}.js`;
   }
 
-  return `${sanitizedValue}.${extension}`;
+  const extension = expectedName.split(".").pop() ?? "";
+  return sanitizedValue.toLowerCase().endsWith(`.${extension}`) ? sanitizedValue : `${sanitizedValue}.${extension}`;
 }
 
 function normalizeHtmlWorkspaceCustomFileName(kind: HtmlWorkspaceCustomKind, value: string) {
@@ -880,6 +936,7 @@ function injectIntoBody(markup: string, block: string) {
 
 function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
   let markup = normalizeHtmlMarkup(workspace.files.markup);
+  const baseScriptKind = getHtmlWorkspaceScriptKindFromFileName(workspace.fileNames.script);
   const cssBlocks = [
     workspace.enabled.styles
       ? {
@@ -900,15 +957,17 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
       ? {
           name: workspace.fileNames.script,
           content: workspace.files.script.trim(),
+          kind: baseScriptKind,
         }
       : null,
     ...workspace.customFiles
-      .filter((file) => file.kind === "javascript" && file.includeInPreview)
+      .filter((file) => isWebCoreModuleScriptKind(file.kind) && file.includeInPreview)
       .map((file) => ({
         name: file.name,
         content: file.content.trim(),
+        kind: file.kind,
       })),
-  ].filter((block): block is { name: string; content: string } => Boolean(block?.content));
+  ].filter((block): block is { name: string; content: string; kind: WebCoreScriptKind } => Boolean(block?.content));
 
   const htmlBlocks = workspace.customFiles
     .filter((file) => file.kind === "html" && file.includeInPreview)
@@ -917,9 +976,35 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
       content: file.content.trim(),
     }))
     .filter((block) => block.content);
-  const hasModuleScripts =
-    workspace.packages.length > 0 ||
-    scriptBlocks.some((block) => /\bimport\s+.+from\s+['"]|^\s*import\s+['"]|\bexport\s+/m.test(block.content));
+  const browserModulePackages = workspace.packages.filter(
+    (pkg) => pkg.name !== "tailwindcss" && pkg.name !== "@tailwindcss/browser",
+  );
+  const usesTailwindBrowserRuntime = cssBlocks.some((block) =>
+    shouldUseTailwindBrowserRuntime(block.content, workspace.packages),
+  );
+  const usesModulePipeline = shouldUseWebCoreModulePipeline(
+    scriptBlocks.map((block) => ({ content: block.content, kind: block.kind })),
+    browserModulePackages,
+  );
+  const packageImports = browserModulePackages.reduce<Record<string, string>>((acc, pkg) => {
+    acc[pkg.name] = `https://esm.sh/${pkg.specifier}?bundle`;
+    acc[`${pkg.name}/`] = `https://esm.sh/${pkg.specifier}/`;
+    return acc;
+  }, {});
+  const moduleImportMap = usesModulePipeline
+    ? buildWebCoreModuleImportMap(
+        scriptBlocks.map((block) => ({
+          content: block.content,
+          entry: true,
+          kind: block.kind,
+          name: block.name,
+        })),
+      )
+    : null;
+  const combinedImports = {
+    ...packageImports,
+    ...(moduleImportMap?.imports ?? {}),
+  };
 
   markup = ensureWebCoreBaseLinks(markup, workspace.fileNames, workspace.enabled);
 
@@ -940,45 +1025,66 @@ function buildHtmlPreviewDocument(workspace: HtmlWorkspaceState) {
       markup = removeLinkedStylesheet(markup, file.name);
     }
 
-    if (file.kind === "javascript") {
+    if (isWebCoreModuleScriptKind(file.kind)) {
       markup = removeLinkedScript(markup, file.name);
     }
   }
 
-  if (workspace.packages.length > 0) {
-    const imports = workspace.packages.reduce<Record<string, string>>((acc, pkg) => {
-      acc[pkg.name] = `https://esm.sh/${pkg.specifier}?bundle`;
-      acc[`${pkg.name}/`] = `https://esm.sh/${pkg.specifier}/`;
-      return acc;
-    }, {});
-    const preloadLinks = workspace.packages
-      .map((pkg) => `<link rel="modulepreload" href="https://esm.sh/${pkg.specifier}?bundle" />`)
-      .join("\n");
+  const headBlocks: string[] = [];
 
-    markup = injectIntoHead(markup, `${preloadLinks}\n<script type="importmap" data-codeorbit-importmap>\n${JSON.stringify({ imports }, null, 2)}\n</script>`);
+  if (browserModulePackages.length > 0) {
+    headBlocks.push(
+      browserModulePackages
+        .map((pkg) => `<link rel="modulepreload" href="https://esm.sh/${pkg.specifier}?bundle" />`)
+        .join("\n"),
+    );
+  }
+
+  if (Object.keys(combinedImports).length > 0) {
+    headBlocks.push(
+      `<script type="importmap" data-codeorbit-importmap>\n${JSON.stringify({ imports: combinedImports }, null, 2)}\n</script>`,
+    );
+  }
+
+  if (usesTailwindBrowserRuntime) {
+    headBlocks.push(
+      '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4" data-codeorbit-tailwind></script>',
+    );
+  }
+
+  if (headBlocks.length > 0) {
+    markup = injectIntoHead(markup, headBlocks.filter(Boolean).join("\n"));
   }
 
   for (const block of cssBlocks) {
     const resolvedCssContent = resolveWebCoreCssPackageImports(block.content, workspace.packages);
-    const replacement = inlineLinkedStylesheet(markup, block.name, resolvedCssContent);
+    const styleAttributes = shouldUseTailwindBrowserRuntime(resolvedCssContent, workspace.packages)
+      ? ' type="text/tailwindcss"'
+      : "";
+    const replacement = inlineLinkedStylesheet(markup, block.name, resolvedCssContent, styleAttributes);
 
     markup = replacement.replaced
       ? replacement.markup
-      : injectIntoHead(markup, `<style data-codeorbit-file="${block.name}">\n${resolvedCssContent}\n</style>`);
+      : injectIntoHead(
+          markup,
+          `<style${styleAttributes} data-codeorbit-file="${block.name}">\n${resolvedCssContent}\n</style>`,
+        );
   }
 
   for (const block of htmlBlocks) {
     markup = injectIntoBody(markup, `<!-- ${block.name} -->\n${block.content}`);
   }
 
-  for (const block of scriptBlocks) {
-    const replacement = inlineLinkedScript(markup, block.name, block.content, hasModuleScripts);
+  for (const [index, block] of scriptBlocks.entries()) {
+    const entrySpecifier = moduleImportMap?.entrySpecifiers[index];
+    const inlineContent = usesModulePipeline && entrySpecifier ? `import "${entrySpecifier}";` : block.content;
+    const replacement = inlineLinkedScript(markup, block.name, inlineContent, usesModulePipeline);
 
     markup = replacement.replaced
       ? replacement.markup
       : injectIntoBody(
           markup,
-          `<script${hasModuleScripts ? ` type="module"` : ""} data-codeorbit-file="${block.name}">\n${block.content}\n</script>`,
+          `<script${usesModulePipeline ? ` type="module"` : ""} data-codeorbit-file="${block.name}">\n${inlineContent}\n</script>`,
         );
   }
 
@@ -1332,7 +1438,7 @@ export function PlaygroundShell() {
       id: "markup",
       name: htmlWorkspace.fileNames.markup,
       monaco: htmlWorkspaceFiles.markup.monaco,
-      kind: getHtmlWorkspaceKindFromBaseFileId("markup"),
+      kind: getHtmlWorkspaceKindFromBaseFileId("markup", htmlWorkspace.fileNames),
       isBase: true,
       canHide: false,
       canDelete: false,
@@ -1344,7 +1450,7 @@ export function PlaygroundShell() {
             id: "styles",
             name: htmlWorkspace.fileNames.styles,
             monaco: htmlWorkspaceFiles.styles.monaco,
-            kind: getHtmlWorkspaceKindFromBaseFileId("styles"),
+            kind: getHtmlWorkspaceKindFromBaseFileId("styles", htmlWorkspace.fileNames),
             isBase: true,
             canHide: true,
             canDelete: false,
@@ -1357,8 +1463,8 @@ export function PlaygroundShell() {
           {
             id: "script",
             name: htmlWorkspace.fileNames.script,
-            monaco: htmlWorkspaceFiles.script.monaco,
-            kind: getHtmlWorkspaceKindFromBaseFileId("script"),
+            monaco: getHtmlWorkspaceMonacoLanguage(getHtmlWorkspaceScriptKindFromFileName(htmlWorkspace.fileNames.script)),
+            kind: getHtmlWorkspaceKindFromBaseFileId("script", htmlWorkspace.fileNames),
             isBase: true,
             canHide: true,
             canDelete: false,
@@ -1423,7 +1529,9 @@ export function PlaygroundShell() {
               ...(htmlWorkspace.enabled.script
                 ? [
                     {
-                      language: "javascript",
+                      language: getHtmlWorkspaceMonacoLanguage(
+                        getHtmlWorkspaceScriptKindFromFileName(htmlWorkspace.fileNames.script),
+                      ),
                       path: buildPlaygroundModelPath("webcore", htmlWorkspace.fileNames.script),
                       value: htmlWorkspace.files.script,
                     } satisfies PlaygroundMonacoWorkspaceFile,
@@ -1555,7 +1663,7 @@ export function PlaygroundShell() {
 
   const createCustomHtmlWorkspaceFile = useCallback(() => {
     const fallbackKind = currentHtmlFile?.kind ?? "javascript";
-    const promptedName = window.prompt("Add extra file (examples: section.html, theme.css, helper.js)", "");
+    const promptedName = window.prompt("Add extra file (examples: section.html, theme.css, helper.ts, card.tsx)", "");
 
     if (promptedName === null) {
       return;
@@ -1587,7 +1695,7 @@ export function PlaygroundShell() {
 
   const addHtmlWorkspacePackage = useCallback(() => {
     const promptedSpecifier = window.prompt(
-      "Add package (examples: react, react@18, three, @supabase/supabase-js)",
+      'Add package (examples: react, react@19, three, tailwindcss@4, @supabase/supabase-js)',
       "",
     );
 
@@ -2630,7 +2738,8 @@ export function PlaygroundShell() {
                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Packages</p>
                     <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
                       JavaScript imports use browser packages directly. CSS package imports also work here with syntax like{" "}
-                      <span className="font-semibold text-cyan-200">@import "bootstrap";</span> after adding the package.
+                      <span className="font-semibold text-cyan-200">@import "bootstrap";</span> or{" "}
+                      <span className="font-semibold text-cyan-200">@import "tailwindcss";</span>.
                     </p>
                   </div>
 

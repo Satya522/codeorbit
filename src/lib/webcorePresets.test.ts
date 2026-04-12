@@ -10,7 +10,14 @@ describe("webcore presets", () => {
     const presetIds = getWebCorePresetDefinitions().map((preset) => preset.id);
 
     expect(presetIds).toEqual(
-      expect.arrayContaining(["vanilla-landing", "react-ui", "three-scene", "chart-dashboard", "supabase-shell"]),
+      expect.arrayContaining([
+        "vanilla-landing",
+        "tailwind-ui",
+        "react-ui",
+        "three-scene",
+        "chart-dashboard",
+        "supabase-shell",
+      ]),
     );
   });
 
@@ -33,11 +40,19 @@ describe("webcore presets", () => {
       expect.arrayContaining([
         "react@19.2.4",
         "three@0.179.1",
+        "tailwindcss@4",
         "bootstrap@5.3.3",
         "animate.css@4.1.1",
         "chart.js@4.5.1",
         "@supabase/supabase-js@2",
       ]),
     );
+  });
+
+  it("ships a compact Tailwind preset", () => {
+    const tailwindPreset = getWebCorePreset("tailwind-ui");
+
+    expect(tailwindPreset.packages).toEqual(expect.arrayContaining([expect.objectContaining({ name: "tailwindcss" })]));
+    expect(tailwindPreset.styles).toContain('@import "tailwindcss";');
   });
 });
