@@ -14,7 +14,6 @@ import {
   Keyboard,
   LoaderCircle,
   Maximize2,
-  Menu,
   Minimize2,
   PencilLine,
   Play,
@@ -24,7 +23,6 @@ import {
   X,
 } from "lucide-react";
 import MonacoEditor from "@/components/shared/MonacoEditor";
-import { usePlatformShell } from "@/components/layout/PlatformShell";
 import {
   buildPlaygroundModelPath,
   configurePlaygroundMonaco,
@@ -1149,7 +1147,6 @@ function PanelResizeHandle(props: React.ComponentProps<typeof Separator>) {
 
 export function PlaygroundShell() {
   const { isLoaded: isAuthLoaded, isSignedIn } = useAuth();
-  const { isSidebarCollapsed, toggleSidebar } = usePlatformShell();
   const [activeLang, setActiveLang] = useState<LanguageId>("javascript");
   const [editorFont, setEditorFont] = useState<SandboxFontId>("jetbrains-mono");
   const [activeTab, setActiveTab] = useState<"output" | "errors" | "input">("output");
@@ -2045,22 +2042,6 @@ export function PlaygroundShell() {
     [],
   );
 
-  const openHtmlPreviewInNewTab = useCallback(() => {
-    const doc = buildHtmlPreviewDocument(htmlWorkspace);
-    const previewWindow = window.open("", "_blank");
-
-    if (!previewWindow) {
-      setErrorStr("Preview tab could not be opened. Please allow pop-ups and try again.");
-      setActiveTab("errors");
-      return;
-    }
-
-    previewWindow.document.open();
-    previewWindow.document.write(doc);
-    previewWindow.document.close();
-    previewWindow.focus();
-  }, [htmlWorkspace]);
-
   const exportHtmlWorkspaceZip = useCallback(async () => {
     try {
       const { default: JSZip } = await import("jszip");
@@ -2288,18 +2269,17 @@ export function PlaygroundShell() {
         : "Stdin is used by the remote execution languages.";
 
   const hasErrors = errorStr.length > 0;
-  const workspaceSummary =
-    activeLang === "html"
-      ? "Linked browser files, packages, and instant preview."
-      : activeLang === "sql"
-        ? "Local SQLite workspace for queries and table output."
-        : lang.runtime;
-  const workspaceStatusLabel = isRunning ? "Running now" : hasErrors ? "Needs attention" : hasRun ? "Ready" : "Idle";
-  const workspaceStatusClass = isRunning
-    ? "border-amber-300/20 bg-amber-400/10 text-amber-100"
+  const headerAccentClass = isRunning
+    ? "bg-amber-300"
     : hasErrors
-      ? "border-rose-300/20 bg-rose-400/10 text-rose-100"
-      : "border-emerald-300/20 bg-emerald-400/10 text-emerald-100";
+      ? "bg-rose-300"
+      : "bg-emerald-300";
+  const editorContextLabel =
+    activeLang === "html"
+      ? "WebCore"
+      : activeLang === "sql"
+        ? "SQLite"
+        : lang.runtime;
 
   const renderOutput = () => {
     if (activeLang === "html" && hasRun) {
@@ -2931,109 +2911,30 @@ export function PlaygroundShell() {
         <div className="absolute top-[40%] left-[20%] h-[40%] w-[40%] rounded-full bg-indigo-500/5 blur-[120px]" />
       </div>
 
-      <header className="relative z-20 border-b border-white/[0.05] bg-[#020202]/72 px-3 py-3 backdrop-blur-2xl shadow-sm sm:px-4">
-        <div className="flex w-full flex-col gap-3">
-          <div className="flex w-full flex-wrap items-center gap-2">
-            {isSidebarCollapsed ? (
-              <button
-                aria-label="Open sidebar"
-                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-zinc-200 transition-all duration-300 hover:bg-white/[0.08] hover:text-white"
-                onClick={toggleSidebar}
-                type="button"
+      <header className="relative z-20 border-b border-white/[0.06] bg-[#020202]/92 px-4 py-3 backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${headerAccentClass}`} />
+              <Link
+                href="/"
+                className="shrink-0 text-[13px] font-semibold tracking-tight text-zinc-100 transition-colors duration-200 hover:text-white"
               >
-                <Menu className="h-4 w-4" />
-              </button>
-            ) : null}
-
-            <Link
-              href="/dashboard"
-              className="inline-flex h-10 flex-shrink-0 items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 text-[10.5px] font-semibold text-zinc-300 transition-all duration-300 hover:border-cyan-300/20 hover:bg-white/[0.06] hover:text-white sm:text-[11px]"
-            >
-              <span className="text-cyan-200">CodeOrbit</span>
-              <span className="text-zinc-500">Dashboard</span>
-            </Link>
-
-            <div className="min-w-0 flex-1 rounded-[1.15rem] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 sm:px-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-cyan-300/15 bg-cyan-400/[0.08] text-cyan-100">
-                  <FileCode2 className="h-4.5 w-4.5" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-[13px] font-semibold text-white">Playground Workspace</p>
-                  <p className="truncate text-[11px] text-zinc-500">
-                    {editorFilename} · {workspaceSummary}
-                  </p>
-                </div>
-              </div>
+                CodeOrbit
+              </Link>
+              <span className="text-zinc-700">/</span>
+              <span className="truncate text-[13px] font-medium text-zinc-400">Playground</span>
             </div>
-
-            <div className="ml-auto flex flex-shrink-0 items-center gap-2 max-[1180px]:ml-0 max-[1180px]:w-full max-[1180px]:justify-end">
-              {activeLang === "html" ? (
-                <button
-                  className="rounded-full border border-cyan-400/15 bg-cyan-400/5 px-3.5 py-1.5 text-[10.5px] font-semibold text-cyan-100 transition-all duration-300 hover:border-cyan-300/25 hover:bg-cyan-400/10 sm:px-4 sm:text-[11px]"
-                  onClick={openHtmlPreviewInNewTab}
-                  type="button"
-                >
-                  Browser Preview
-                </button>
-              ) : null}
-
-              <div className="group relative">
-                <div
-                  className={`pointer-events-none absolute inset-0 rounded-full blur-xl transition-all duration-300 ${
-                    isPlaygroundFullscreen
-                      ? "bg-cyan-400/25 opacity-100"
-                      : "bg-fuchsia-500/12 opacity-0 group-hover:opacity-100"
-                  }`}
-                />
-                <button
-                  aria-label={isPlaygroundFullscreen ? "Exit fullscreen mode" : "Enter fullscreen mode"}
-                  className={`relative inline-flex h-10 w-10 items-center justify-center rounded-full border text-zinc-200 transition-all duration-300 hover:scale-[1.04] hover:text-white ${
-                    isPlaygroundFullscreen
-                      ? "border-cyan-300/35 bg-cyan-400/12 shadow-[0_0_24px_rgba(34,211,238,0.18)]"
-                      : "border-white/10 bg-white/[0.04] hover:border-cyan-300/30 hover:bg-white/[0.08]"
-                  }`}
-                  onClick={() => {
-                    void togglePlaygroundFullscreen();
-                  }}
-                  type="button"
-                  title={isPlaygroundFullscreen ? "Minimize playground" : "Fullscreen playground"}
-                >
-                  <div
-                    className={`absolute inset-[1px] rounded-full transition-opacity duration-300 ${
-                      isPlaygroundFullscreen
-                        ? "bg-[radial-gradient(circle_at_top,rgba(34,211,238,0.18),rgba(8,47,73,0.08)_60%,transparent)] opacity-100"
-                        : "bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),transparent_65%)] opacity-70 group-hover:opacity-100"
-                    }`}
-                  />
-                  <span className="relative z-10">
-                    {isPlaygroundFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-                  </span>
-                </button>
-                <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-full border border-white/10 bg-[#09090d]/96 px-3 py-1 text-[10px] font-semibold text-zinc-200 opacity-0 shadow-[0_16px_40px_rgba(0,0,0,0.35)] transition-all duration-300 group-hover:block group-hover:translate-y-0 group-hover:opacity-100">
-                  {isPlaygroundFullscreen ? "Exit Focus Mode" : "Enter Focus Mode"}
-                </span>
-              </div>
-
-              <button
-                className="group relative overflow-hidden rounded-full p-[1px] shadow-[0_0_20px_rgba(168,85,247,0.15)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_30px_rgba(34,211,238,0.25)] disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isRunning}
-                onClick={handleRun}
-                type="button"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-fuchsia-500 via-purple-500 to-cyan-500 opacity-80" />
-                <div className="relative flex h-full w-full items-center justify-center gap-2 rounded-full bg-[#050505] px-4 py-2 text-[10.5px] font-bold text-zinc-100 transition-colors duration-300 group-hover:bg-transparent group-hover:text-white sm:px-5 sm:py-2.5 sm:text-[11.5px]">
-                  {isRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
-                  {isRunning ? "Running" : "Run Code"}
-                </div>
-              </button>
-            </div>
+            <p className="mt-1 truncate text-[11px] text-zinc-500">
+              {editorFilename} · {editorContextLabel}
+            </p>
           </div>
-          <div className="flex w-full flex-wrap items-center gap-2">
-            <div className="relative flex flex-shrink-0 cursor-pointer items-center gap-2 rounded-full border border-white/5 bg-white/[0.03] px-3 py-1.5 transition-all duration-300 hover:border-white/20 hover:bg-white/[0.06] focus-within:border-purple-500/40 focus-within:ring-1 focus-within:ring-cyan-500/40 group">
+
+          <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-start">
+            <div className="group relative flex h-9 items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3 text-zinc-200 transition-colors duration-200 hover:border-white/16 hover:bg-white/[0.05]">
               <LanguageGlyph option={lang} size={16} className="h-3.5 w-3.5 flex-shrink-0 object-contain text-white opacity-80" />
-              <span className="min-w-[58px] text-[10.5px] font-semibold text-zinc-200 sm:min-w-[66px] sm:text-[11px]">{lang.label}</span>
-              <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500 transition-colors group-hover:text-zinc-300" />
+              <span className="min-w-[56px] text-[11px] font-medium">{lang.label}</span>
+              <ChevronDown className="h-3.5 w-3.5 flex-shrink-0 text-zinc-500 transition-colors duration-200 group-hover:text-zinc-300" />
               <select
                 className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0 outline-none"
                 onChange={(event) => handleLanguageChange(event.target.value as LanguageId)}
@@ -3047,63 +2948,57 @@ export function PlaygroundShell() {
               </select>
             </div>
 
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/5 bg-white/[0.03] px-3 py-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">File</span>
-              <span className="text-[10.5px] font-semibold text-zinc-200 sm:text-[11px]">{editorFilename}</span>
-            </div>
-
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/5 bg-white/[0.03] px-3 py-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">Mode</span>
-              <span className="text-[10.5px] font-semibold text-zinc-200 sm:text-[11px]">
-                {activeLang === "html" ? "Frontend Workspace" : lang.runtime}
-              </span>
-            </div>
-
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 ${workspaceStatusClass}`}>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em]">Status</span>
-              <span className="text-[10.5px] font-semibold sm:text-[11px]">{workspaceStatusLabel}</span>
-            </div>
-
-            <div className="ml-auto flex flex-shrink-0 items-center gap-2 max-[1180px]:ml-0 max-[1180px]:w-full max-[1180px]:justify-start">
-              {remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage ? (
-                <button
-                  ref={runtimeDependenciesButtonRef}
-                  className="inline-flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/5 px-3 py-1.5 text-[10px] font-semibold text-emerald-100 transition-all duration-300 hover:border-emerald-300/25 hover:bg-emerald-400/10"
-                  onClick={toggleRuntimeDependencies}
-                  type="button"
-                >
-                  Imports & Setup
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform duration-300 ${isRuntimeDependenciesOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-              ) : null}
-
-              {activeLang === "html" ? (
-                <button
-                  ref={webCoreActionsButtonRef}
-                  className="inline-flex items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/5 px-3 py-1.5 text-[10px] font-semibold text-cyan-100 transition-all duration-300 hover:border-cyan-300/25 hover:bg-cyan-400/10"
-                  onClick={toggleWebCoreActions}
-                  type="button"
-                >
-                  Frontend Workspace
-                  <ChevronDown
-                    className={`h-3.5 w-3.5 transition-transform duration-300 ${isWebCoreActionsOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-              ) : null}
-
+            {remoteExecutionLanguages.includes(activeLang) && activeRuntimeLanguage ? (
               <button
-                className="inline-flex items-center gap-2 rounded-full border border-white/[0.05] bg-white/[0.02] px-3 py-1.5 text-[10px] font-medium text-zinc-400 transition-all duration-300 hover:bg-white/[0.05] hover:text-zinc-200"
-                onClick={handleReset}
+                ref={runtimeDependenciesButtonRef}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3.5 text-[11px] font-medium text-zinc-300 transition-colors duration-200 hover:border-white/16 hover:bg-white/[0.05] hover:text-white"
+                onClick={toggleRuntimeDependencies}
                 type="button"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Reset
+                Imports
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-200 ${isRuntimeDependenciesOpen ? "rotate-180" : ""}`}
+                />
               </button>
-            </div>
+            ) : null}
+
+            {activeLang === "html" ? (
+              <button
+                ref={webCoreActionsButtonRef}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-white/8 bg-white/[0.03] px-3.5 text-[11px] font-medium text-zinc-300 transition-colors duration-200 hover:border-white/16 hover:bg-white/[0.05] hover:text-white"
+                onClick={toggleWebCoreActions}
+                type="button"
+              >
+                WebCore
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform duration-200 ${isWebCoreActionsOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+            ) : null}
+
+            <button
+              aria-label={isPlaygroundFullscreen ? "Exit fullscreen mode" : "Enter fullscreen mode"}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-zinc-300 transition-colors duration-200 hover:border-white/16 hover:bg-white/[0.05] hover:text-white"
+              onClick={() => {
+                void togglePlaygroundFullscreen();
+              }}
+              type="button"
+              title={isPlaygroundFullscreen ? "Exit focus mode" : "Focus mode"}
+            >
+              {isPlaygroundFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            </button>
+
+            <button
+              className="inline-flex h-9 items-center gap-2 rounded-full bg-white px-4 text-[11px] font-semibold text-black transition-colors duration-200 hover:bg-zinc-200 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              disabled={isRunning}
+              onClick={handleRun}
+              type="button"
+            >
+              {isRunning ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
+              {isRunning ? "Running" : "Run"}
+            </button>
           </div>
-          </div>
+        </div>
       </header>
 
       <div className="relative z-10 flex-1 overflow-hidden">

@@ -60,7 +60,8 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const playgroundChromeHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSidebarCollapsed = isCompactViewport ? !isMobileSidebarOpen : isDesktopSidebarCollapsed;
   const shouldShowFooter = !isPlaygroundRoute;
-  const shouldAutoHidePlaygroundChrome = isPlaygroundRoute && !isCompactViewport;
+  // Playground owns its own editor chrome, so the platform shell stays completely out of the way.
+  const shouldAutoHidePlaygroundChrome = false;
   const isPlaygroundChromeVisible = shouldAutoHidePlaygroundChrome
     ? (playgroundChromeState.path === pathname ? playgroundChromeState.visible : false)
     : true;
@@ -115,12 +116,9 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => cancelPlaygroundChromeHide, [cancelPlaygroundChromeHide]);
 
-  const shouldRenderInlineNavbar = !shouldAutoHidePlaygroundChrome;
-  const shouldRenderOverlayNavbar = shouldAutoHidePlaygroundChrome && isPlaygroundChromeVisible;
-  const shouldShowSidebar = (
-    !isPlaygroundRoute ||
-    (shouldAutoHidePlaygroundChrome ? isPlaygroundChromeVisible : isPlaygroundSidebarOpen)
-  ) && !isCourseDetailRoute;
+  const shouldRenderInlineNavbar = !isPlaygroundRoute;
+  const shouldRenderOverlayNavbar = false;
+  const shouldShowSidebar = !isPlaygroundRoute && !isCourseDetailRoute;
 
   return (
     <PlatformShellContext.Provider
