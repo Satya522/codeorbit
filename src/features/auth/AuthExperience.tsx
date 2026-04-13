@@ -49,6 +49,9 @@ const clerkAppearance = {
 export function AuthExperience({ mode }: { mode: AuthMode }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const isSignIn = mode === "sign-in";
+  const isProductionBuild = process.env.NODE_ENV === "production";
+  const isTestClerkKey = (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY ?? "").startsWith("pk_test_");
+  const shouldShowProductionSetupNotice = isProductionBuild && isTestClerkKey;
 
   const hero = useMemo(
     () =>
@@ -96,16 +99,35 @@ export function AuthExperience({ mode }: { mode: AuthMode }) {
 
         <section className="relative mt-8 w-full">
           <div className="absolute inset-x-10 top-5 h-24 rounded-full bg-cyan-400/12 blur-[80px]" />
-          {isSignIn ? (
-            <SignIn
-              appearance={clerkAppearance}
-              signUpUrl="/sign-up"
-            />
+          {shouldShowProductionSetupNotice ? (
+            <div className="relative overflow-hidden rounded-[30px] border border-amber-400/20 bg-[linear-gradient(180deg,rgba(27,17,4,0.95),rgba(10,10,12,0.92))] p-7 shadow-[0_28px_100px_rgba(2,6,23,0.45)] backdrop-blur-2xl">
+              <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/60 to-transparent" />
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-amber-200/80">
+                Clerk Production Setup Needed
+              </p>
+              <h2 className="mt-4 text-2xl font-semibold text-white">
+                Auth is disabled on this production deployment.
+              </h2>
+              <p className="mt-4 text-sm leading-7 text-zinc-300">
+                This deployment is still using Clerk development keys, which trigger the
+                development-browser handshake and break sign-in on public domains.
+                Switch Vercel production to your live Clerk keys on a custom domain to
+                enable login here.
+              </p>
+              <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-sm text-zinc-300">
+                1. Add a real domain like <span className="font-semibold text-white">codeorbit.dev</span> to Vercel.
+                <br />
+                2. Create or open your Clerk production instance.
+                <br />
+                3. Replace production env vars with <span className="font-semibold text-white">pk_live</span> and <span className="font-semibold text-white">sk_live</span>.
+                <br />
+                4. Redeploy production.
+              </div>
+            </div>
+          ) : isSignIn ? (
+            <SignIn appearance={clerkAppearance} signUpUrl="/sign-up" />
           ) : (
-            <SignUp
-              appearance={clerkAppearance}
-              signInUrl="/sign-in"
-            />
+            <SignUp appearance={clerkAppearance} signInUrl="/sign-in" />
           )}
         </section>
       </div>

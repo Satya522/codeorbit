@@ -1,6 +1,5 @@
 "use client";
 
-import { useUser } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -15,8 +14,6 @@ const marketingNavLinks = [
   { href: "/projects", label: "Projects", icon: FolderDot },
   { href: "/about", label: "About", icon: Info },
 ];
-
-const platformPrefixes = ["/dashboard", "/learn", "/dsa", "/practice", "/playground", "/projects", "/interview-prep", "/ai-assistant"];
 
 /* ============================================ */
 /*  BRAND LOCKUP                                */
@@ -49,21 +46,12 @@ import { usePlatformShell } from "./PlatformShell";
 
 export const Navbar = () => {
   const { isSidebarCollapsed } = usePlatformShell();
-  const { isSignedIn, user } = useUser();
   const [isScrolled, setIsScrolled] = useState(false);
   const { scrollY } = useScroll();
 
   const pathname = usePathname();
-  const isPlatformNavbar = platformPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isAiAssistantRoute = pathname === "/ai-assistant" || pathname.startsWith("/ai-assistant/");
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const profileInitials = [user?.firstName, user?.lastName]
-    .filter(Boolean)
-    .map((part) => part?.trim()?.[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || user?.username?.slice(0, 2).toUpperCase() || "CO";
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setIsScrolled(latest > 30);
@@ -159,25 +147,15 @@ export const Navbar = () => {
             </Link>
 
             <Link
-              href={isSignedIn ? "/dashboard" : "/sign-in"}
+              href="/sign-in"
               className="group relative flex shrink-0 items-center justify-center gap-1 sm:gap-2 overflow-hidden rounded-full bg-white px-4 sm:px-6 py-2 sm:py-2.5 text-[12px] sm:text-[14px] font-bold text-black transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_30px_rgba(255,255,255,0.1)]"
             >
               <span className="pointer-events-none absolute inset-[-10px] rounded-full bg-gradient-to-r from-transparent via-white/50 to-transparent blur-md transition-opacity duration-300 opacity-0 group-hover:opacity-100 animate-slide-right" />
               <span className="relative z-10 flex items-center gap-1.5">
-                {isSignedIn ? "Workspace" : "Sign In"}
+                Sign In
                 <ChevronDown className="h-3.5 w-3.5 -rotate-90 transition-transform group-hover:translate-x-1 shrink-0" />
               </span>
             </Link>
-
-            {isPlatformNavbar && isSignedIn ? (
-              <Link
-                aria-label="Profile"
-                href="/profile"
-                className="hidden lg:flex shrink-0 ml-1 sm:ml-2 h-8 w-8 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/10 bg-gradient-to-br from-[#121217] to-[#1a1a24] text-[10px] sm:text-xs font-bold text-white shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)] transition-all hover:scale-105 hover:border-primary/40 hover:shadow-[0_0_15px_rgba(139,92,246,0.3)]"
-              >
-                {profileInitials}
-              </Link>
-            ) : null}
           </div>
         </motion.header>
       </div>

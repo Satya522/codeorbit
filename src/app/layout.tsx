@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { ClerkProvider } from "@clerk/nextjs";
-import { dark } from "@clerk/themes";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import { cookies } from "next/headers";
 import { CookieConsentGate } from "@/components/legal/CookieConsentGate";
@@ -40,26 +38,24 @@ export default async function RootLayout({
   );
 
   return (
-    <ClerkProvider appearance={{ baseTheme: dark }}>
-      <html lang="en" suppressHydrationWarning>
-        <body
-          className={`${geistSans.variable} ${geistMono.variable} ${playfairDisplay.variable} antialiased min-h-screen bg-background text-foreground flex flex-col transition-colors duration-[800ms] ease-in-out`}
-          suppressHydrationWarning
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} ${playfairDisplay.variable} antialiased min-h-screen bg-background text-foreground flex flex-col transition-colors duration-[800ms] ease-in-out`}
+        suppressHydrationWarning
+      >
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem={false}
+          forcedTheme="dark"
+          disableTransitionOnChange
         >
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem={false}
-            forcedTheme="dark"
-            disableTransitionOnChange
-          >
-            <main className="flex-1 transition-colors duration-[800ms] ease-in-out">
-              {children}
-            </main>
-            <CookieConsentGate initialHasConsent={initialCookieConsent} />
-          </ThemeProvider>
-        </body>
-      </html>
-    </ClerkProvider>
+          <main className="flex-1 transition-colors duration-[800ms] ease-in-out">
+            {children}
+          </main>
+          <CookieConsentGate initialHasConsent={initialCookieConsent} />
+        </ThemeProvider>
+      </body>
+    </html>
   );
 }

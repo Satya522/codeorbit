@@ -1121,12 +1121,14 @@ function LanguageGlyph({
 function PanelShell({
   children,
   className = "",
+  style,
 }: {
   children: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }) {
   return (
-    <section className={`relative flex h-full w-full flex-col overflow-hidden bg-[#060608] ${className}`}>
+    <section className={`relative flex h-full w-full flex-col overflow-hidden bg-[#060608] ${className}`} style={style}>
       {children}
     </section>
   );
@@ -2285,7 +2287,7 @@ export function PlaygroundShell() {
     if (activeLang === "html" && hasRun) {
       return (
         <div className="flex h-full min-h-0 flex-col">
-          <div className="border-b border-white/5 px-4 py-3 font-sans text-xs font-semibold tracking-tight text-zinc-400">
+          <div className="border-b border-white/[0.06] px-4 py-3 font-sans text-xs font-semibold tracking-tight text-zinc-300">
             Live Preview
           </div>
           <div className="min-h-0 flex-1 bg-white">
@@ -2305,21 +2307,21 @@ export function PlaygroundShell() {
         <div className="space-y-3 p-4 font-sans tracking-tight">
           {outputStr ? (
             <div 
-              className="rounded-xl border border-[#00ffa3]/10 bg-[#00ffa3]/5 px-4 py-3 text-[12px] font-medium text-[#00ffa3]"
-              style={{ fontFamily: editorFontStack }}
+              className="rounded-xl border border-emerald-400/15 bg-emerald-400/8 px-4 py-3 text-[12.5px] font-medium text-emerald-200"
+              style={{ fontFamily: '"JetBrains Mono", monospace' }}
             >
               {outputStr}
             </div>
           ) : null}
 
           {sqlTables.map((table, index) => (
-            <div key={`${table.title}-${index}`} className="overflow-hidden rounded-xl border border-white/5 bg-black/10">
-              <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+            <div key={`${table.title}-${index}`} className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#121d2d]">
+              <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-2 font-sans">
                 <div>
                   <p className="text-[13px] font-semibold text-white">{table.title}</p>
                   <p className="text-[11px] text-zinc-500">{table.rows.length} row(s)</p>
                 </div>
-                <span className="rounded-full border border-cyan-400/15 bg-cyan-400/5 px-2 py-1 text-[10px] font-semibold text-cyan-300">
+                <span className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-2 py-1 text-[10px] font-semibold text-cyan-200">
                   Result
                 </span>
               </div>
@@ -2330,7 +2332,7 @@ export function PlaygroundShell() {
                       {table.columns.map((column) => (
                         <th
                           key={column}
-                          className="border-b border-white/5 bg-black/10 px-3 py-2 font-sans text-[11px] font-semibold tracking-tight text-zinc-400"
+                          className="border-b border-white/[0.06] bg-[#172235] px-3 py-2 font-sans text-[11px] font-semibold tracking-tight text-zinc-300"
                         >
                           {column}
                         </th>
@@ -2343,8 +2345,8 @@ export function PlaygroundShell() {
                         {row.map((value, valueIndex) => (
                           <td
                             key={valueIndex}
-                            className="border-b border-white/[0.03] px-3 py-2 font-mono text-[11px] text-zinc-200"
-                            style={{ fontFamily: editorFontStack }}
+                            className="border-b border-white/[0.04] px-3 py-2 font-mono text-[12.5px] text-slate-100"
+                            style={{ fontFamily: '"JetBrains Mono", monospace' }}
                           >
                             {value === null ? <span className="italic text-zinc-600">NULL</span> : String(value)}
                           </td>
@@ -2362,21 +2364,21 @@ export function PlaygroundShell() {
 
     if (hasRun && outputStr) {
       return (
-        <div className="h-full bg-[#05070c] p-4">
+        <div className="flex h-full min-h-0 flex-col p-4">
           <div className="mb-4 flex items-center justify-between font-sans tracking-tight">
             <div className="flex items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></div>
               <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-300">Output</span>
             </div>
             {execTimeMs !== null ? (
-              <span className="text-[10px] text-zinc-400" style={{ fontFamily: editorFontStack }}>
+              <span className="text-[10px] text-zinc-400" style={{ fontFamily: '"JetBrains Mono", monospace' }}>
                 {execTimeMs}ms
               </span>
             ) : null}
           </div>
           <pre 
-            className="h-[calc(100%-2.25rem)] overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-[12px] font-medium leading-7 text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] [overflow-wrap:anywhere]"
-            style={{ fontFamily: editorFontStack }}
+            className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-2xl border border-white/[0.07] bg-[#121d2d] px-4 py-3 text-[12.5px] font-medium leading-7 text-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] [overflow-wrap:anywhere]"
+            style={{ fontFamily: '"JetBrains Mono", monospace' }}
           >
             {outputStr}
           </pre>
@@ -3217,10 +3219,12 @@ export function PlaygroundShell() {
           </PanelResizeHandle>
 
           <Panel defaultSize={40} minSize={20} className="flex h-full min-w-0">
-            <PanelShell className="flex w-full min-h-0 min-w-0 flex-col">
-              <div className="flex min-h-[50px] flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-black/20 px-3 py-2 sm:px-4">
-                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                  <div className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-full border border-white/[0.05] bg-white/[0.02] p-0.5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+            <PanelShell
+              className="flex h-full w-full min-h-0 min-w-0 flex-col border-l border-white/[0.07] bg-[#0f1623] text-slate-100"
+              style={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "12.5px" }}
+            >
+              <div className="flex h-[38px] items-center gap-1 border-b border-white/[0.07] bg-[#0f1623] px-4">
+                <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto font-sans [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
                     {([
                       { id: "output", label: "Output", Icon: TerminalSquare },
                       { id: "errors", label: "Errors", Icon: AlertTriangle },
@@ -3231,37 +3235,36 @@ export function PlaygroundShell() {
                       return (
                         <button
                           key={id}
-                          className={`relative shrink-0 rounded-full px-2.5 py-1.5 text-[10px] font-medium transition-all duration-300 sm:px-3 sm:text-[10.5px] ${
+                          className={`relative shrink-0 rounded-[6px] px-3 py-[5px] text-[12px] font-medium transition-all duration-150 ${
                             active
-                              ? "bg-white/[0.1] text-white shadow-sm ring-1 ring-white/[0.1]"
-                              : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300"
+                              ? "bg-[#161d2e] text-[#e8edf5]"
+                              : "text-[#8b9ab5] hover:text-[#e8edf5]"
                           }`}
                           onClick={() => setActiveTab(id)}
                           type="button"
                         >
-                          <span className="relative z-10 inline-flex items-center gap-1.5 sm:gap-2">
-                            <Icon className={`h-3.5 w-3.5 ${active ? "text-zinc-200" : "text-zinc-500"}`} />
+                          <span className="relative z-10 inline-flex items-center gap-1.5">
+                            <Icon className={`h-3.5 w-3.5 ${active ? "text-[#e8edf5]" : "text-[#8b9ab5]"}`} />
                             {label}
                           </span>
                         </button>
                       );
                     })}
-                  </div>
+                </div>
 
                   <button
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.05] bg-white/[0.02] px-2.5 py-1.5 text-[10px] font-medium text-zinc-400 transition-all duration-300 hover:bg-white/[0.05] hover:text-zinc-200 sm:text-[10.5px]"
+                    className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-[6px] border border-white/[0.07] bg-[#111827] px-[10px] py-1 font-sans text-[11px] font-medium text-[#8b9ab5] transition-all duration-150 hover:border-[rgba(99,179,237,0.25)] hover:text-[#e8edf5]"
                     onClick={handleReset}
                     type="button"
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
                     Reset
                   </button>
-                </div>
 
-                {execTimeMs !== null ? <span className="text-[11px] text-zinc-600" style={{ fontFamily: editorFontStack }}>{execTimeMs}ms</span> : null}
+                {execTimeMs !== null ? <span className="ml-2 shrink-0 text-[11px] text-zinc-500">{execTimeMs}ms</span> : null}
               </div>
 
-            <div className="min-h-0 flex-1 overflow-auto bg-[#060609]">
+            <div className="min-h-0 flex-1 overflow-auto">
               {activeTab === "output" ? (
                 renderOutput()
               ) : activeTab === "errors" ? (
@@ -3272,8 +3275,8 @@ export function PlaygroundShell() {
                       <span className="text-[11px] font-semibold text-red-300">Stderr</span>
                     </div>
                     <pre
-                      className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-red-400/10 bg-red-500/[0.04] p-4 text-[11px] leading-6 text-red-200 shadow-inner [overflow-wrap:anywhere]"
-                      style={{ fontFamily: editorFontStack }}
+                      className="overflow-x-auto whitespace-pre-wrap break-words rounded-2xl border border-red-400/12 bg-red-500/[0.05] p-4 text-[12.5px] leading-6 text-red-200 shadow-inner [overflow-wrap:anywhere]"
+                      style={{ fontFamily: '"JetBrains Mono", monospace' }}
                     >
                       {errorStr}
                     </pre>
@@ -3295,13 +3298,13 @@ export function PlaygroundShell() {
                 )
               ) : (
                 <div className="flex h-full flex-col">
-                  <div className="flex items-center gap-2 border-b border-white/5 px-4 py-4 font-sans tracking-tight">
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-4 font-sans tracking-tight">
                     <div className="h-2 w-2 rounded-full bg-cyan-400/80"></div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Standard Input</span>
                   </div>
                   <textarea
-                    className="min-h-0 flex-1 resize-none bg-transparent px-4 py-4 text-[12px] leading-6 text-[#00ffa3] outline-none placeholder:text-zinc-700"
-                    style={{ fontFamily: editorFontStack }}
+                    className="min-h-0 flex-1 resize-none bg-transparent px-4 py-4 text-[12.5px] leading-6 text-cyan-100 outline-none placeholder:text-slate-500"
+                    style={{ fontFamily: '"JetBrains Mono", monospace' }}
                     onChange={(event) => setInputStr(event.target.value)}
                     placeholder={stdinHint}
                     value={inputStr}

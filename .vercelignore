@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+.codex-next.err.log
+.codex-next.out.log
+postgres-local.log
