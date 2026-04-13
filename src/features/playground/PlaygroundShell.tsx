@@ -2274,21 +2274,12 @@ export function PlaygroundShell() {
     : hasErrors
       ? "bg-rose-300"
       : "bg-emerald-300";
-  const headerAccentGlow = `0 0 36px rgba(${lang.accentRgb},0.2)`;
   const editorContextLabel =
     activeLang === "html"
       ? "WebCore"
       : activeLang === "sql"
         ? "SQLite"
         : lang.runtime;
-  const languageBadgeStyle = {
-    background: `linear-gradient(135deg, rgba(${lang.accentRgb},0.2), rgba(255,255,255,0.02))`,
-    borderColor: `rgba(${lang.accentRgb},0.24)`,
-    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.06), 0 0 24px rgba(${lang.accentRgb},0.12)`,
-  } as const;
-  const brandMarkStyle = {
-    boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 32px rgba(0,0,0,0.38), 0 0 32px rgba(${lang.accentRgb},0.12)`,
-  } as const;
 
   const renderOutput = () => {
     if (activeLang === "html" && hasRun) {
@@ -2923,48 +2914,20 @@ export function PlaygroundShell() {
       <header className="relative z-20 border-b border-white/[0.06] bg-[#020202]/92 px-4 py-3 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${headerAccentClass}`} />
               <Link
                 href="/"
-                className="group relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] transition-transform duration-200 hover:scale-[1.02]"
-                style={brandMarkStyle}
+                className="shrink-0 text-[13px] font-semibold tracking-tight text-zinc-100 transition-colors duration-200 hover:text-white"
               >
-                <div
-                  className="pointer-events-none absolute inset-0 opacity-90 transition-opacity duration-200 group-hover:opacity-100"
-                  style={{ background: `radial-gradient(circle at 30% 20%, rgba(${lang.accentRgb},0.2), rgba(0,0,0,0) 70%)` }}
-                />
-                <Image
-                  src="/codeorbit-logo-mark-cropped.png"
-                  alt="CodeOrbit"
-                  width={26}
-                  height={26}
-                  priority
-                  className="relative z-10 h-6 w-6 object-contain"
-                />
+                CodeOrbit
               </Link>
-
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${headerAccentClass}`} style={{ boxShadow: headerAccentGlow }} />
-                    <span className="shrink-0 text-[13px] font-semibold tracking-tight text-zinc-100">CodeOrbit</span>
-                    <span className="text-zinc-700">/</span>
-                    <span className="truncate text-[13px] font-medium text-zinc-400">Playground</span>
-                  </div>
-
-                  <span
-                    className="inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-100"
-                    style={languageBadgeStyle}
-                  >
-                    {lang.label}
-                  </span>
-                </div>
-
-                <p className="mt-1 truncate text-[11px] text-zinc-500">
-                  {editorFilename} · {editorContextLabel}
-                </p>
-              </div>
+              <span className="text-zinc-700">/</span>
+              <span className="truncate text-[13px] font-medium text-zinc-400">Playground</span>
             </div>
+            <p className="mt-1 truncate text-[11px] text-zinc-500">
+              {editorFilename} · {editorContextLabel}
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-start">
@@ -3113,34 +3076,13 @@ export function PlaygroundShell() {
 
                   </>
                 ) : (
-                  <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                    <div
-                      className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] bg-[#0b0b10]"
-                      style={{ boxShadow: `0 12px 28px rgba(0,0,0,0.26), 0 0 24px rgba(${lang.accentRgb},0.08)` }}
-                    >
-                      <div
-                        className="pointer-events-none absolute inset-0"
-                        style={{ background: `radial-gradient(circle at 30% 20%, rgba(${lang.accentRgb},0.18), rgba(0,0,0,0) 70%)` }}
-                      />
-                      <Image
-                        src="/codeorbit-logo-mark-cropped.png"
-                        alt=""
-                        width={18}
-                        height={18}
-                        className="relative z-10 h-[18px] w-[18px] object-contain opacity-95"
-                      />
+                  <>
+                    <div className="inline-flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-[12px] font-medium text-white shadow-sm">
+                      <FileCode2 className="h-4 w-4 text-purple-400" />
+                      Editor
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-semibold tracking-tight text-zinc-100">Editor</span>
-                        <span className="h-1 w-1 rounded-full bg-zinc-700" />
-                        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-zinc-500">Active</span>
-                      </div>
-                      <div className="truncate text-[11px] text-zinc-500" style={{ fontFamily: editorFontStack }}>
-                        {editorFilename}
-                      </div>
-                    </div>
-                  </div>
+                    <div className="text-[11px] text-zinc-500" style={{ fontFamily: editorFontStack }}>{editorFilename}</div>
+                  </>
                 )}
               </div>
 
