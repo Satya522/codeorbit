@@ -4,10 +4,12 @@ import Link from "next/link";
 import { Badge } from "@/components/ui";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
+  ArrowUpRight,
   BarChart3,
   Bot,
   BrainCircuit,
   BriefcaseBusiness,
+  ChevronDown,
   Code2,
   Compass,
   FolderKanban,
@@ -20,12 +22,12 @@ import {
 /* ============================================ */
 
 const features = [
-  { icon: SquareTerminal, title: "Browser-Native IDE", desc: "Full Node.js, Python & Java execution inside WebContainers. Zero local setup. Write, run, debug — instantly.", gradient: "from-amber-500/20 via-orange-500/10 to-transparent", accent: "text-amber-400", ring: "group-hover:shadow-amber-500/10", iconShell: "from-amber-500/20 to-orange-500/10", iconGlow: "bg-amber-500/20" },
-  { icon: BrainCircuit, title: "DSA Mastery Engine", desc: "3,000+ curated problems organized by algorithmic pattern. Structured roadmaps track your progression from arrays to advanced graphs.", gradient: "from-violet-500/20 via-purple-500/10 to-transparent", accent: "text-violet-400", ring: "group-hover:shadow-violet-500/10", iconShell: "from-violet-500/20 to-purple-500/10", iconGlow: "bg-violet-500/20" },
-  { icon: Bot, title: "AI Code Mentor", desc: "GPT-4 Turbo powered assistant that explains code line-by-line, fixes errors contextually, and gives progressive hints.", gradient: "from-cyan-500/20 via-blue-500/10 to-transparent", accent: "text-cyan-400", ring: "group-hover:shadow-cyan-500/10", iconShell: "from-cyan-500/20 to-blue-500/10", iconGlow: "bg-cyan-500/20" },
-  { icon: FolderKanban, title: "Enterprise Projects", desc: "Build production-grade apps — collaborative editors, microservices, AI UIs — guided step-by-step with scaffolding.", gradient: "from-emerald-500/20 via-green-500/10 to-transparent", accent: "text-emerald-400", ring: "group-hover:shadow-emerald-500/10", iconShell: "from-emerald-500/20 to-green-500/10", iconGlow: "bg-emerald-500/20" },
-  { icon: BriefcaseBusiness, title: "Mock Interviews", desc: "Company-specific prep for Google, Meta & Amazon. System design walkthroughs and behavioral prep with live AI feedback.", gradient: "from-rose-500/20 via-red-500/10 to-transparent", accent: "text-rose-400", ring: "group-hover:shadow-rose-500/10", iconShell: "from-rose-500/20 to-red-500/10", iconGlow: "bg-rose-500/20" },
-  { icon: BarChart3, title: "Progress Analytics", desc: "GitHub-style heatmaps, streak counters, global rankings, and granular breakdowns of your strengths and blind spots.", gradient: "from-indigo-500/20 via-blue-500/10 to-transparent", accent: "text-indigo-400", ring: "group-hover:shadow-indigo-500/10", iconShell: "from-indigo-500/20 to-blue-500/10", iconGlow: "bg-indigo-500/20" },
+  { icon: SquareTerminal, title: "Browser-Native IDE", href: "/playground", desc: "WebCore for frontend builds plus secure remote runners for Java, Python, Go, C++, and Node-style execution. Zero local setup.", gradient: "from-amber-500/20 via-orange-500/10 to-transparent", accent: "text-amber-400", ring: "group-hover:shadow-amber-500/10", iconShell: "from-amber-500/20 to-orange-500/10", iconGlow: "bg-amber-500/20" },
+  { icon: BrainCircuit, title: "DSA Mastery Engine", href: "/dsa", desc: "3,000+ curated problems organized by algorithmic pattern. Structured roadmaps track your progression from arrays to advanced graphs.", gradient: "from-violet-500/20 via-purple-500/10 to-transparent", accent: "text-violet-400", ring: "group-hover:shadow-violet-500/10", iconShell: "from-violet-500/20 to-purple-500/10", iconGlow: "bg-violet-500/20" },
+  { icon: Bot, title: "AI Code Mentor", href: "/ai-assistant", desc: "AI-powered guidance that explains code line-by-line, fixes errors contextually, and gives progressive hints without breaking your flow.", gradient: "from-cyan-500/20 via-blue-500/10 to-transparent", accent: "text-cyan-400", ring: "group-hover:shadow-cyan-500/10", iconShell: "from-cyan-500/20 to-blue-500/10", iconGlow: "bg-cyan-500/20" },
+  { icon: FolderKanban, title: "Enterprise Projects", href: "/projects", desc: "Build production-grade apps — collaborative editors, microservices, AI UIs — guided step-by-step with scaffolding.", gradient: "from-emerald-500/20 via-green-500/10 to-transparent", accent: "text-emerald-400", ring: "group-hover:shadow-emerald-500/10", iconShell: "from-emerald-500/20 to-green-500/10", iconGlow: "bg-emerald-500/20" },
+  { icon: BriefcaseBusiness, title: "Mock Interviews", href: "/interview-prep", desc: "Company-specific prep for Google, Meta & Amazon. System design walkthroughs and behavioral prep with live AI feedback.", gradient: "from-rose-500/20 via-red-500/10 to-transparent", accent: "text-rose-400", ring: "group-hover:shadow-rose-500/10", iconShell: "from-rose-500/20 to-red-500/10", iconGlow: "bg-rose-500/20" },
+  { icon: BarChart3, title: "Progress Analytics", href: "/dashboard", desc: "GitHub-style heatmaps, streak counters, global rankings, and granular breakdowns of your strengths and blind spots.", gradient: "from-indigo-500/20 via-blue-500/10 to-transparent", accent: "text-indigo-400", ring: "group-hover:shadow-indigo-500/10", iconShell: "from-indigo-500/20 to-blue-500/10", iconGlow: "bg-indigo-500/20" },
 ];
 
 const stats = [
@@ -169,34 +171,77 @@ function useInView(threshold = 0.15): [React.RefCallback<HTMLElement>, boolean] 
   const observerRef = useRef<IntersectionObserver | null>(null);
 
   const callbackRef = useCallback((node: HTMLElement | null) => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
+    observerRef.current?.disconnect();
+
+    if (!node || visible) {
+      return;
     }
-    if (node) {
-      observerRef.current = new IntersectionObserver(
-        ([entry]) => { if (entry.isIntersecting) setVisible(true); },
-        { threshold }
-      );
-      observerRef.current.observe(node);
+
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      setVisible(true);
+      return;
     }
-  }, [threshold]);
+
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+    if (node.getBoundingClientRect().top <= viewportHeight * (1 - threshold)) {
+      setVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+          observerRef.current = null;
+        }
+      },
+      { threshold, rootMargin: "0px 0px -10% 0px" }
+    );
+
+    observer.observe(node);
+    observerRef.current = observer;
+  }, [threshold, visible]);
+
+  useEffect(() => {
+    return () => observerRef.current?.disconnect();
+  }, []);
 
   return [callbackRef, visible];
 }
 
 function useCounter(end: number, visible: boolean, duration = 2000) {
   const [count, setCount] = useState(0);
+
   useEffect(() => {
     if (!visible) return;
-    let start = 0;
-    const step = end / (duration / 16);
-    const timer = setInterval(() => {
-      start += step;
-      if (start >= end) { setCount(end); clearInterval(timer); }
-      else setCount(Math.floor(start));
-    }, 16);
-    return () => clearInterval(timer);
+    if (end <= 0) {
+      return;
+    }
+
+    let frameId = 0;
+    let startTime: number | null = null;
+
+    const easeOutCubic = (progress: number) => 1 - Math.pow(1 - progress, 3);
+
+    const tick = (timestamp: number) => {
+      if (startTime === null) {
+        startTime = timestamp;
+      }
+
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const nextCount = Math.round(end * easeOutCubic(progress));
+      setCount(progress >= 1 ? end : nextCount);
+
+      if (progress < 1) {
+        frameId = window.requestAnimationFrame(tick);
+      }
+    };
+
+    frameId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frameId);
   }, [visible, end, duration]);
+
   return count;
 }
 
@@ -225,11 +270,16 @@ function StatCard({ end, suffix, label, visible, delay }: { end: number; suffix:
 
 function TestimonialCard({
   testimonial,
+  ariaHidden = false,
 }: {
   testimonial: { name: string; role: string; quote: string; initial: string };
+  ariaHidden?: boolean;
 }) {
   return (
-    <div className="group relative w-[280px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_12px_34px_rgba(0,0,0,0.16)] backdrop-blur-xl transition-all duration-500 hover:-translate-y-1 hover:border-white/15 hover:shadow-[0_24px_60px_rgba(0,0,0,0.22),0_0_22px_rgba(139,92,246,0.08)] sm:w-[320px] sm:p-6">
+    <div
+      aria-hidden={ariaHidden}
+      className="group relative w-[280px] shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 shadow-[0_12px_34px_rgba(0,0,0,0.16)] backdrop-blur-xl transition-all duration-500 hover:-translate-y-1 hover:border-white/15 hover:shadow-[0_24px_60px_rgba(0,0,0,0.22),0_0_22px_rgba(139,92,246,0.08)] sm:w-[320px] sm:p-6"
+    >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <div className="pointer-events-none absolute left-6 top-6 h-16 w-16 rounded-full bg-primary/15 blur-3xl opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
       <div className="mb-5 flex items-center justify-between">
@@ -357,7 +407,7 @@ export default function Home() {
               <span className="relative z-10 flex items-center justify-center gap-2">Start Learning — Free <span className="group-hover:translate-x-1 transition-transform">→</span></span>
             </Link>
             <Link
-              href="/about"
+              href="/case-study"
               className="px-10 py-[18px] rounded-full border border-white/10 bg-white/[0.02] text-white font-bold text-base hover:bg-white/[0.06] transition-all duration-300 hover:scale-[1.02] active:scale-[0.96] text-center backdrop-blur-sm hover:border-white/20"
             >
               Read the Case Study
@@ -389,7 +439,7 @@ export default function Home() {
                 </div>
                 <div className="ml-4 flex-1 max-w-xs h-[22px] bg-white/[0.03] rounded-md border border-white/5 flex items-center px-3 gap-1.5">
                   <svg className="w-3 h-3 text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                  <span className="text-[10px] text-zinc-500 font-mono">codeorbit.dev/playground</span>
+                  <span className="text-[10px] text-zinc-500 font-mono">codeorbit-xi.vercel.app/playground</span>
                 </div>
               </div>
 
@@ -504,7 +554,7 @@ export default function Home() {
                 <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${f.gradient} opacity-0 group-hover:opacity-100 transition-opacity duration-700`} />
                 <div className={`pointer-events-none absolute left-6 top-6 h-20 w-20 rounded-full ${f.iconGlow} opacity-40 blur-3xl transition-all duration-500 group-hover:scale-125 group-hover:opacity-80`} />
                 <div className="absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-                <div className="relative z-10 flex h-full flex-col pb-8">
+                <div className="relative z-10 flex h-full flex-col">
                   <div className={`mb-6 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-br ${f.iconShell} shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_10px_30px_rgba(0,0,0,0.18)] transition-all duration-500 group-hover:-translate-y-1 group-hover:scale-110 group-hover:border-white/15 group-hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_16px_36px_rgba(0,0,0,0.22)]`}>
                     <f.icon className={`h-6 w-6 ${f.accent} transition-all duration-500 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:scale-110`} />
                   </div>
@@ -513,9 +563,13 @@ export default function Home() {
                     <div className={`mt-2 h-px w-12 bg-gradient-to-r ${f.iconShell} opacity-40 transition-all duration-500 group-hover:w-24 group-hover:opacity-100 group-hover:shadow-[0_0_16px_rgba(139,92,246,0.25)]`} />
                   </div>
                   <p className="text-sm text-zinc-500 leading-relaxed transition-colors group-hover:text-zinc-300">{f.desc}</p>
-                  <div className={`pointer-events-none absolute bottom-0 left-0 flex items-center gap-1 text-xs font-bold ${f.accent} opacity-0 transition-opacity duration-300 group-hover:opacity-100`}>
-                    Explore Module <span className="group-hover:translate-x-1 transition-transform">→</span>
-                  </div>
+                  <Link
+                    href={f.href}
+                    className={`mt-auto inline-flex items-center gap-1 pt-6 text-xs font-bold ${f.accent} transition-all duration-300 hover:gap-2`}
+                  >
+                    Explore Module
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
                 </div>
               </div>
             ))}
@@ -698,8 +752,15 @@ export default function Home() {
               className="animate-marquee flex min-w-max items-stretch gap-4 will-change-transform group-hover:[animation-play-state:paused]"
               style={{ animationDuration: "56s" }}
             >
-              {[...testimonials, ...testimonials].map((testimonial, index) => (
-                <TestimonialCard key={`${testimonial.name}-${index}`} testimonial={testimonial} />
+              {testimonials.map((testimonial) => (
+                <TestimonialCard key={testimonial.name} testimonial={testimonial} />
+              ))}
+              {testimonials.map((testimonial) => (
+                <TestimonialCard
+                  key={`${testimonial.name}-clone`}
+                  testimonial={testimonial}
+                  ariaHidden
+                />
               ))}
             </div>
           </div>
@@ -724,16 +785,24 @@ export default function Home() {
             {faqs.map((faq, i) => (
               <div
                 key={i}
-                className={`glass-card-strong rounded-2xl border transition-all duration-300 overflow-hidden cursor-pointer ${openFaq === i ? "border-primary/20 shadow-lg shadow-primary/5" : "border-white/[0.04] hover:border-white/[0.08]"}`}
-                onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                className={`glass-card-strong overflow-hidden rounded-2xl border transition-all duration-300 ${openFaq === i ? "border-primary/20 shadow-lg shadow-primary/5" : "border-white/[0.04] hover:border-white/[0.08]"}`}
               >
-                <div className="flex items-center justify-between p-6 md:p-7">
-                  <h3 className="text-white font-bold text-sm md:text-base pr-4">{faq.q}</h3>
-                  <div className={`w-8 h-8 rounded-full border border-white/10 flex items-center justify-center flex-shrink-0 transition-all duration-300 ${openFaq === i ? "bg-primary border-primary/30 rotate-45" : "bg-white/[0.02]"}`}>
-                    <span className="text-white text-lg leading-none">+</span>
-                  </div>
-                </div>
-                <div className={`overflow-hidden transition-all duration-500 ${openFaq === i ? "max-h-60 opacity-100" : "max-h-0 opacity-0"}`}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between p-6 text-left md:p-7"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  aria-expanded={openFaq === i}
+                  aria-controls={`faq-panel-${i}`}
+                >
+                  <h3 className="pr-4 text-sm font-bold text-white md:text-base">{faq.q}</h3>
+                  <span className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-white/10 transition-all duration-300 ${openFaq === i ? "border-primary/30 bg-primary/15 text-primary" : "bg-white/[0.02] text-zinc-400"}`}>
+                    <ChevronDown className={`h-4 w-4 transition-transform duration-300 ${openFaq === i ? "rotate-180" : "rotate-0"}`} />
+                  </span>
+                </button>
+                <div
+                  id={`faq-panel-${i}`}
+                  className={`overflow-hidden transition-all duration-500 ${openFaq === i ? "max-h-60 opacity-100" : "max-h-0 opacity-0"}`}
+                >
                   <p className="px-6 md:px-7 pb-6 md:pb-7 text-zinc-400 text-sm md:text-base leading-relaxed">
                     {faq.a}
                   </p>
